@@ -51,6 +51,14 @@ def test_top_keywords_have_no_punctuation_tokens():
             assert _HAS_WORD_CHAR_RE.search(keyword)
 
 
+def test_pipeline_includes_trend_and_lifecycle_fields():
+    reports = run_pipeline(RAW_RECORDS, now=NOW, dedup_threshold=DEDUP_THRESHOLD)
+    flood = _report_for(reports, "evt-flood")
+    assert flood["lifecycle_stage"] == "衰退期"
+    assert flood["key_timepoints"]
+    assert sum(p["report_count"] for p in flood["trend_points"]) == flood["report_count"]
+
+
 def test_pipeline_runs_over_events_discovered_without_ground_truth_labels():
     unlabeled_records = [{k: v for k, v in raw.items() if k != "event_id"} for raw in RAW_RECORDS]
 

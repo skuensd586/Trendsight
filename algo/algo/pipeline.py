@@ -6,7 +6,7 @@ or pre-tagged crawler output) and produces a per-event report ready for the dash
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from .cluster import compute_hotness, single_pass_cluster
@@ -14,6 +14,7 @@ from .nlp import extract_keywords, tokenize
 from .preprocess import is_near_duplicate, normalize_document, simhash
 from .schema import Document
 from .sentiment import classify_sentiment
+from .trend import bucket_report_counts, classify_lifecycle_stage, detect_changepoints
 
 
 def discover_events(raw_records: list[dict[str, Any]], threshold: float = 0.04) -> list[dict[str, Any]]:
@@ -57,13 +58,31 @@ def _sentiment_distribution(corpus_tokens: list[list[str]]) -> dict[str, float]:
     return {label: round(count / total, 3) for label, count in counts.items()}
 
 
+def _trend(
+    publish_times: list[datetime], now: datetime | None, bucket_hours: float
+) -> dict[str, Any]:
+    counts = bucket_report_counts(publish_times, bucket_hours=bucket_hours, now=now)
+    start = min(publish_times)
+    bucket_starts = [start + timedelta(hours=bucket_hours * i) for i in range(len(counts))]
+    changepoints = detect_changepoints(counts)
+    return {
+        "lifecycle_stage": classify_lifecycle_stage(counts),
+        "trend_points": [
+            {"time": t.isoformat(), "report_count": c} for t, c in zip(bucket_starts, counts)
+        ],
+        "key_timepoints": [bucket_starts[i].isoformat() for i in changepoints],
+    }
+
+
 def analyze_event(
     raws: list[dict[str, Any]],
     now: datetime | None = None,
     top_k_keywords: int = 8,
     dedup_threshold: int = 3,
+    trend_bucket_hours: float = 6.0,
 ) -> dict[str, Any]:
-    """Run one event's raw records through preprocess -> dedup -> nlp -> hotness -> sentiment.
+    """Run one event's raw records through preprocess -> dedup -> nlp -> hotness -> sentiment
+    -> trend/lifecycle.
 
     `dedup_threshold` (max Hamming distance treated as a duplicate) should scale with report
     length: 3 suits full articles; short social posts need a looser threshold since a few
@@ -72,22 +91,23 @@ def analyze_event(
     docs = [normalize_document(raw) for raw in raws]
     docs, duplicate_count = _drop_near_duplicates(docs, dedup_threshold)
     corpus_tokens = [tokenize(doc.title + " " + doc.content) for doc in docs]
+    publish_times = [doc.publish_time for doc in docs]
 
-    return {
+    report = {
         "event_id": raws[0]["event_id"] if raws else None,
         "title": docs[0].title if docs else "",
         "report_count": len(docs),
         "duplicate_count": duplicate_count,
-        "hotness": round(compute_hotness([doc.publish_time for doc in docs], now=now), 3),
+        "hotness": round(compute_hotness(publish_times, now=now), 3),
         "sentiment_distribution": _sentiment_distribution(corpus_tokens),
         "top_keywords": _event_keywords(corpus_tokens, top_k_keywords),
         "sources": sorted({doc.source for doc in docs}),
         "platforms": sorted({doc.platform for doc in docs}),
-        "time_range": [
-            min(doc.publish_time for doc in docs).isoformat(),
-            max(doc.publish_time for doc in docs).isoformat(),
-        ] if docs else None,
+        "time_range": [min(publish_times).isoformat(), max(publish_times).isoformat()] if docs else None,
     }
+    if docs:
+        report.update(_trend(publish_times, now, trend_bucket_hours))
+    return report
 
 
 def run_pipeline(
