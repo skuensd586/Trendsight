@@ -9,6 +9,7 @@ from .stopwords import STOPWORDS
 # segmentation the best a regex can do is split CJK into single characters
 # while keeping runs of Latin/digits (e.g. "COVID-19") as one token.
 _TOKEN_RE = re.compile(r"[一-鿿]|[\w]+")
+_HAS_WORD_CHAR_RE = re.compile(r"[一-鿿\w]")
 
 try:
     import jieba
@@ -28,6 +29,10 @@ def tokenize(text: str, remove_stopwords: bool = True) -> list[str]:
         tokens = [t.strip() for t in jieba.cut(text) if t.strip()]
     else:
         tokens = _fallback_tokenize(text)
+
+    # jieba passes punctuation through as its own tokens; drop anything with no
+    # actual letter/digit/CJK content (commas, quotes, whitespace-only pieces).
+    tokens = [t for t in tokens if _HAS_WORD_CHAR_RE.search(t)]
 
     if remove_stopwords:
         tokens = [t for t in tokens if t not in STOPWORDS]
