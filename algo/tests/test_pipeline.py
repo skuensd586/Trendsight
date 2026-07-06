@@ -1,7 +1,7 @@
 import re
 from datetime import datetime
 
-from algo.pipeline import run_pipeline
+from algo.pipeline import discover_events, run_pipeline
 from algo.sample_data import RAW_RECORDS
 
 _HAS_WORD_CHAR_RE = re.compile(r"[一-鿿\w]")
@@ -49,3 +49,14 @@ def test_top_keywords_have_no_punctuation_tokens():
     for report in reports:
         for keyword in report["top_keywords"]:
             assert _HAS_WORD_CHAR_RE.search(keyword)
+
+
+def test_pipeline_runs_over_events_discovered_without_ground_truth_labels():
+    unlabeled_records = [{k: v for k, v in raw.items() if k != "event_id"} for raw in RAW_RECORDS]
+
+    discovered_records = discover_events(unlabeled_records)
+    reports = run_pipeline(discovered_records, now=NOW, dedup_threshold=DEDUP_THRESHOLD)
+
+    # Discovered event_ids are synthetic cluster labels, not the original evt-* names,
+    # but every original report must land in exactly one discovered event.
+    assert sum(r["report_count"] + r["duplicate_count"] for r in reports) == len(RAW_RECORDS)

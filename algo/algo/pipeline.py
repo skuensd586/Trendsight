@@ -1,8 +1,7 @@
-"""End-to-end M1 pipeline: preprocess -> dedup -> nlp -> hotness -> sentiment.
+"""End-to-end pipeline: (discover events) -> preprocess -> dedup -> nlp -> hotness -> sentiment.
 
-Event clustering (grouping raw reports into event_id) is M2; until it lands, this
-takes `event_id` as given on each raw record and focuses on proving the rest of
-the M1 chain runs end-to-end and produces a per-event report.
+`run_pipeline` takes `event_id` as given on each raw record (e.g. from `discover_events`,
+or pre-tagged crawler output) and produces a per-event report ready for the dashboard.
 """
 from __future__ import annotations
 
@@ -10,11 +9,20 @@ from collections import defaultdict
 from datetime import datetime
 from typing import Any
 
-from .cluster import compute_hotness
+from .cluster import compute_hotness, single_pass_cluster
 from .nlp import extract_keywords, tokenize
 from .preprocess import is_near_duplicate, normalize_document, simhash
 from .schema import Document
 from .sentiment import classify_sentiment
+
+
+def discover_events(raw_records: list[dict[str, Any]], threshold: float = 0.04) -> list[dict[str, Any]]:
+    """Cluster unlabeled raw records into events (Single-Pass, see cluster.single_pass) and tag
+    each with a discovered `event_id`, overwriting any existing one — the M2 replacement for
+    relying on a crawler (or test fixture) to pre-assign event_id."""
+    docs = [normalize_document(raw) for raw in raw_records]
+    cluster_ids = single_pass_cluster(docs, threshold=threshold)
+    return [{**raw, "event_id": f"cluster-{cluster_id}"} for raw, cluster_id in zip(raw_records, cluster_ids)]
 
 
 def _drop_near_duplicates(docs: list[Document], dedup_threshold: int) -> tuple[list[Document], int]:
