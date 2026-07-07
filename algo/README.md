@@ -57,11 +57,45 @@ python run_demo_cluster.py
 
 ## 用假数据跑通生命周期/趋势判断（M3 起步）
 
-`run_demo.py` 的输出里现在每个事件都带 `lifecycle_stage`（潜伏期/成长期/高潮期/衰退期）、
-`trend_points`（分桶后的报道量时间序列，前端"发展趋势图"直接能用）、`key_timepoints`
-（变点检测标出的关键时间节点）。样本数据里 3 个事件在快照时刻（07-06 18:00）都已过了
-报道高峰，因此都判为"衰退期"——这是真实计算结果，不是凑出来的；暴雨事件的变点检测
-准确抓到了"初期集中报道后骤降"的那个时间点。
+`run_demo.py` 的输出里现在每个事件都带 `stage`（latent/growth/peak/decline）、
+`trend`（按日聚合的报道量时间序列，前端"发展趋势图"直接能用）、`future_trend`
+（对 `trend` 做简单线性外推的未来预测）、`key_timepoints`（变点检测标出的关键时间
+节点）。样本数据里 3 个事件在快照时刻（07-06 18:00）都已过了报道高峰，因此都判为
+"decline"——这是真实计算结果，不是凑出来的；暴雨事件的变点检测准确抓到了"初期
+集中报道后骤降"的那个时间点。
+
+## 对齐后端 api-design 接口
+
+`main` 分支新增了 `api-design/`（`events.json`、`prediction.json` 等），定义了后端
+（C 模块）期望从算法模块（B 模块）拿到的字段名和形状。`pipeline.py` 的输出字段已经
+按这份契约改过一轮：
+
+|字段|来源|对应接口|
+|-|-|-|
+|`heat`|`cluster.compute_hotness`|README 里 B 模块的输出字段说明|
+|`sentiment.{positive,neutral,negative}`|`sentiment.classify_sentiment`|`/api/events/{id}/sentiment`|
+|`keywords: [{word, weight}]`|`nlp.extract_keywords`，weight 按最高分归一化到 0-1|`/api/events/{id}/keywords`|
+|`platform_distribution: [{platform_name, ratio}]`|按 `Document.platform` 计数|`/api/events/{id}/platform`|
+|`trend: [{date, count}]`|`trend.daily_report_counts`，按自然日聚合|`/api/events/{id}/trend`|
+|`stage`（latent/growth/peak/decline）、`confidence`、`stage_probability`、`analysis`、`future_trend`|`trend.predict_lifecycle` + `trend.forecast_future_trend`|`/api/events/{id}/lifecycle`|
+
+**没对上/需要跟后端同步的地方：**
+
+- `main` 分支的 `events.json` 文件内容目前和 `auth.json` 几乎一样（`module` 字段写的是
+  `"auth"`，且缺了 README 里提到的"热点事件列表"`/api/events/hot`和"事件详情"
+  `/api/events/{event_id}` 这两个接口定义）——像是重命名 `event.json → events.json` 时
+  操作失误，建议跟负责后端接口设计的同学确认一下。
+- `stage_probability`/`confidence` 是规则法的启发式置信度（越多分桶数据置信度越高，
+  上限 0.9；相邻阶段分走剩余概率），不是训练模型输出的真实后验概率——见
+  `trend/lifecycle.py` 里的说明，等换成真实分类模型后应该重新设计这部分。
+- `key_timepoints`（关键时间节点）是原始需求文档里提到的功能，但目前 `events.json`/
+  `prediction.json` 都没有对应字段，先作为报告里的额外字段保留，等后端加了字段位置
+  再对齐。
+- `risk_level`（风险等级）在 README 的模块说明里被列为 B 的输出之一，但还没有具体
+  JSON 字段定义，所以暂未实现，等接口定下来再补。
+- `event_id` 接口里类型是 `integer`（数据库自增主键），算法模块内部用的是字符串型
+  聚类标签（如 `cluster-3`）——这层映射预期由后端在入库时处理，算法模块不需要感知
+  真实数据库 ID。
 
 ## 已知局限（等后续里程碑再完善）
 

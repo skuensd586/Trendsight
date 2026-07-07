@@ -4,6 +4,12 @@
 > 事件舆情预测，以及高级功能（虚假文本检测、事件溯源与传播路径）。
 > 爬虫采集、前端界面、账号体系不在本文档范围内，仅在接口处约定输入输出。
 
+> **接口现状**：本文档第 4 节的 `/analyze/*` 接口是早期规划草案。后端已在
+> `api-design/`（`events.json`、`prediction.json` 等）给出具体的字段名和 JSON
+> 形状，`algo/pipeline.py` 现在是照这份契约实现的（字段名如 `heat`/`keywords`/
+> `platform_distribution`/`trend`/`stage` 等），以 `api-design/` 为准，本节仅作
+> 历史参考。差异点见 `algo/README.md`"对齐后端 api-design 接口"一节。
+
 ## 1. 整体流水线
 
 ```

@@ -29,34 +29,42 @@ def test_dedup_collapses_the_planted_near_duplicate_wire_reprints():
     assert _report_for(reports, "evt-canteen")["duplicate_count"] == 0
 
 
-def test_older_event_scores_lower_hotness_despite_similar_report_count():
+def test_older_event_scores_lower_heat_despite_similar_report_count():
     reports = run_pipeline(RAW_RECORDS, now=NOW, dedup_threshold=DEDUP_THRESHOLD)
     flood = _report_for(reports, "evt-flood")
     canteen = _report_for(reports, "evt-canteen")
-    assert flood["hotness"] > canteen["hotness"]
+    assert flood["heat"] > canteen["heat"]
 
 
-def test_sentiment_distribution_matches_the_planted_tone_per_event():
+def test_sentiment_matches_the_planted_tone_per_event():
     reports = run_pipeline(RAW_RECORDS, now=NOW, dedup_threshold=DEDUP_THRESHOLD)
-    phone = _report_for(reports, "evt-phone")["sentiment_distribution"]
-    canteen = _report_for(reports, "evt-canteen")["sentiment_distribution"]
+    phone = _report_for(reports, "evt-phone")["sentiment"]
+    canteen = _report_for(reports, "evt-canteen")["sentiment"]
     assert phone["positive"] > phone["negative"]
     assert canteen["negative"] > canteen["positive"]
 
 
-def test_top_keywords_have_no_punctuation_tokens():
+def test_keywords_are_word_weight_pairs_with_no_punctuation():
     reports = run_pipeline(RAW_RECORDS, now=NOW, dedup_threshold=DEDUP_THRESHOLD)
     for report in reports:
-        for keyword in report["top_keywords"]:
-            assert _HAS_WORD_CHAR_RE.search(keyword)
+        for keyword in report["keywords"]:
+            assert _HAS_WORD_CHAR_RE.search(keyword["word"])
+            assert 0 < keyword["weight"] <= 1.0
+
+
+def test_platform_distribution_ratios_sum_to_one():
+    reports = run_pipeline(RAW_RECORDS, now=NOW, dedup_threshold=DEDUP_THRESHOLD)
+    for report in reports:
+        assert abs(sum(p["ratio"] for p in report["platform_distribution"]) - 1.0) < 1e-9
 
 
 def test_pipeline_includes_trend_and_lifecycle_fields():
     reports = run_pipeline(RAW_RECORDS, now=NOW, dedup_threshold=DEDUP_THRESHOLD)
     flood = _report_for(reports, "evt-flood")
-    assert flood["lifecycle_stage"] == "衰退期"
+    assert flood["stage"] == "decline"
     assert flood["key_timepoints"]
-    assert sum(p["report_count"] for p in flood["trend_points"]) == flood["report_count"]
+    assert flood["future_trend"]
+    assert sum(p["count"] for p in flood["trend"]) == flood["report_count"]
 
 
 def test_pipeline_runs_over_events_discovered_without_ground_truth_labels():
