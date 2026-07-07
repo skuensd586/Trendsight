@@ -1,0 +1,126 @@
+{
+  "module": "qa",
+  "description": "智能问答模块接口，用于用户针对指定舆情事件向大模型提问，并保存多轮对话记录。",
+  "apis": [
+    {
+      "name": "大模型问答",
+      "method": "POST",
+      "path": "/api/events/{event_id}/qa",
+      "description": "用户针对指定舆情事件提出问题，后端调用大模型生成回答，并保存聊天记录。",
+      "request": {
+        "headers": {
+          "Authorization": {
+            "type": "string",
+            "example": "Bearer jwt_xxx",
+            "description": "用户身份认证Token"
+          }
+        },
+        "path": {
+          "event_id": {
+            "type": "integer",
+            "required": true,
+            "description": "当前问答对应的舆情事件ID"
+          }
+        },
+        "body": {
+          "conversation_id": {
+            "type": "string",
+            "required": false,
+            "description": "对话ID，用于维护多轮问答上下文。首次提问时为空，由后端生成。"
+          },
+          "question": {
+            "type": "string",
+            "required": true,
+            "description": "用户提出的问题"
+          }
+        }
+      },
+      "response": {
+        "code": 200,
+        "message": "success",
+        "data": {
+          "conversation_id": {
+            "type": "string",
+            "description": "当前对话ID，用于后续连续提问和查询聊天记录"
+          },
+          "answer": {
+            "type": "string",
+            "description": "大模型生成的回答内容"
+          },
+          "created_time": {
+            "type": "string",
+            "description": "回答生成时间"
+          }
+        }
+      },
+      "data_source": {
+        "C": [
+          "user_question_processing",
+          "large_language_model_api_call",
+          "chat_history_storage"
+        ],
+        "B": [
+          "optional_event_analysis_result"
+        ]
+      }
+    },
+    {
+      "name": "获取聊天记录",
+      "method": "GET",
+      "path": "/api/qa/history/{conversation_id}",
+      "description": "根据对话ID获取用户与大模型之间的历史聊天记录。",
+      "request": {
+        "headers": {
+          "Authorization": {
+            "type": "string",
+            "example": "Bearer jwt_xxx",
+            "description": "用户身份认证Token"
+          }
+        },
+        "path": {
+          "conversation_id": {
+            "type": "string",
+            "required": true,
+            "description": "对话唯一ID"
+          }
+        }
+      },
+      "response": {
+        "code": 200,
+        "message": "success",
+        "data": {
+          "conversation_id": {
+            "type": "string",
+            "description": "当前对话ID"
+          },
+          "messages": [
+            {
+              "role": {
+                "type": "string",
+                "description": "消息角色",
+                "example": "user",
+                "mapping": {
+                  "user": "用户",
+                  "assistant": "大模型"
+                }
+              },
+              "content": {
+                "type": "string",
+                "description": "消息内容"
+              },
+              "time": {
+                "type": "string",
+                "description": "消息产生时间"
+              }
+            }
+          ]
+        }
+      },
+      "data_source": {
+        "C": [
+          "chat_history_database"
+        ]
+      }
+    }
+  ]
+}

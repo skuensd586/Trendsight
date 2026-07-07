@@ -1,0 +1,111 @@
+{
+  "module": "prediction",
+  "description": "事件舆情预测模块接口，用于分析舆情事件的发展趋势，并预测事件当前所处生命周期阶段，包括潜伏期、成长期、高潮期和衰退期。",
+  "apis": [
+    {
+      "name": "事件生命周期预测",
+      "method": "GET",
+      "path": "/api/events/{event_id}/lifecycle",
+      "description": "获取指定舆情事件的生命周期预测结果，包括当前阶段、预测置信度、各阶段概率以及未来趋势预测。",
+      "request": {
+        "headers": {
+          "Authorization": {
+            "type": "string",
+            "example": "Bearer jwt_xxx",
+            "description": "用户身份认证Token"
+          }
+        },
+        "path": {
+          "event_id": {
+            "type": "integer",
+            "required": true,
+            "description": "舆情事件唯一ID"
+          }
+        }
+      },
+      "response": {
+        "code": 200,
+        "message": "success",
+        "data": {
+          "event_id": {
+            "type": "integer",
+            "description": "事件ID"
+          },
+          "stage": {
+            "type": "string",
+            "description": "当前生命周期阶段",
+            "example": "growth",
+            "mapping": {
+              "latent": "潜伏期",
+              "growth": "成长期",
+              "peak": "高潮期",
+              "decline": "衰退期"
+            }
+          },
+          "confidence": {
+            "type": "float",
+            "description": "生命周期预测置信度",
+            "example": 0.86
+          },
+          "stage_probability": {
+            "type": "object",
+            "description": "各生命周期阶段预测概率",
+            "fields": {
+              "latent": {
+                "type": "float",
+                "description": "潜伏期概率"
+              },
+              "growth": {
+                "type": "float",
+                "description": "成长期概率"
+              },
+              "peak": {
+                "type": "float",
+                "description": "高潮期概率"
+              },
+              "decline": {
+                "type": "float",
+                "description": "衰退期概率"
+              }
+            }
+          },
+          "future_trend": {
+            "type": "array",
+            "description": "未来舆情热度趋势预测数据",
+            "items": {
+              "date": {
+                "type": "string",
+                "description": "预测日期"
+              },
+              "predict_heat": {
+                "type": "float",
+                "description": "预测热度值"
+              },
+              "predict_count": {
+                "type": "integer",
+                "description": "预测报道数量"
+              }
+            }
+          },
+          "analysis": {
+            "type": "string",
+            "description": "对当前生命周期阶段的解释说明",
+            "example": "当前事件报道数量持续增加，公众关注度快速提升，处于成长期。"
+          }
+        }
+      },
+      "data_source": {
+        "B": [
+          "trend_analysis",
+          "heat_change",
+          "lifecycle_prediction_model",
+          "future_trend_prediction"
+        ],
+        "C": [
+          "database_query",
+          "API_response_format"
+        ]
+      }
+    }
+  ]
+}
