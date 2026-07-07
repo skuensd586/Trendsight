@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Any
 
 from ..schema import Document
+from .text_type import resolve_text_type
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _WHITESPACE_RE = re.compile(r"\s+")
@@ -40,13 +41,15 @@ def parse_publish_time(value: Any) -> datetime:
 
 def normalize_document(raw: dict[str, Any]) -> Document:
     """Map a raw crawler record (arbitrary key casing/format) onto the standard Document schema."""
+    platform = raw.get("platform", "")
     return Document(
         doc_id=str(raw["doc_id"]),
         title=strip_boilerplate(raw.get("title", "")),
         content=strip_boilerplate(raw.get("content", "")),
         publish_time=parse_publish_time(raw["publish_time"]),
         source=raw.get("source", ""),
-        platform=raw.get("platform", ""),
+        platform=platform,
         url=raw.get("url", ""),
         author=raw.get("author", ""),
+        text_type=resolve_text_type(platform),
     )

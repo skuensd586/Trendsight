@@ -22,3 +22,7 @@ class Document:
     sentiment_label: str | None = None
     sentiment_score: float | None = None
     event_id: str | None = None
+    # Set once by preprocess.text_type.resolve_text_type from `platform` (see that module);
+    # "comment" or "article" if the platform is known, else "auto" as a degraded fallback.
+    # Downstream sentiment code should read this rather than re-deriving text_type itself.
+    text_type: str = "auto"
