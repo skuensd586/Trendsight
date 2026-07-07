@@ -1,0 +1,341 @@
+{
+  "module": "auth",
+  "description": "用户认证与个人中心相关接口，包括用户登录、用户信息查询以及关注配置管理。",
+  "apis": [
+    {
+      "name": "用户登录",
+      "method": "POST",
+      "path": "/api/auth/login",
+      "description": "用户通过用户名和密码登录系统，验证成功后返回身份认证Token。",
+      "request": {
+        "body": {
+          "username": {
+            "type": "string",
+            "required": true,
+            "description": "用户登录账号"
+          },
+          "password": {
+            "type": "string",
+            "required": true,
+            "description": "用户登录密码"
+          }
+        }
+      },
+      "response": {
+        "code": 200,
+        "message": "success",
+        "data": {
+          "user_id": {
+            "type": "integer",
+            "description": "用户唯一ID"
+          },
+          "username": {
+            "type": "string",
+            "description": "用户名"
+          },
+          "token": {
+            "type": "string",
+            "description": "JWT身份认证Token，用于后续接口身份验证"
+          }
+        }
+      }
+    },
+    {
+      "name": "获取用户信息",
+      "method": "GET",
+      "path": "/api/user/profile",
+      "description": "获取当前登录用户的信息以及个人关注配置，用于个人中心展示。",
+      "request": {
+        "headers": {
+          "Authorization": {
+            "type": "string",
+            "example": "Bearer jwt_xxx",
+            "description": "用户身份认证请求头"
+          }
+        }
+      },
+      "response": {
+        "code": 200,
+        "message": "success",
+        "data": {
+          "user_id": {
+            "type": "integer",
+            "description": "用户唯一ID"
+          },
+          "username": {
+            "type": "string",
+            "description": "用户名"
+          },
+          "preferences": {
+            "type": "object",
+            "description": "用户关注配置",
+            "fields": {
+              "fields": {
+                "type": "array",
+                "description": "用户关注领域列表",
+                "example": [
+                  "社会",
+                  "科技",
+                  "财经"
+                ]
+              },
+              "keywords": {
+                "type": "array",
+                "description": "用户关注关键词列表",
+                "example": [
+                  "事故",
+                  "疫情"
+                ]
+              },
+              "platform_urls": {
+                "type": "array",
+                "description": "用户关注的新闻及社交平台网址列表",
+                "items": {
+                  "platform_name": {
+                    "type": "string",
+                    "description": "平台名称",
+                    "example": "微博"
+                  },
+                  "url": {
+                    "type": "string",
+                    "description": "平台网址",
+                    "example": "https://weibo.com"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "更新关注设置",
+      "method": "PUT",
+      "path": "/api/user/preferences",
+      "description": "用户修改个人关注领域、关键词以及新闻社交平台网址配置。",
+      "request": {
+        "headers": {
+          "Authorization": {
+            "type": "string",
+            "example": "Bearer jwt_xxx",
+            "description": "用户身份认证请求头"
+          }
+        },
+        "body": {
+          "fields": {
+            "type": "array",
+            "required": true,
+            "description": "用户关注领域列表",
+            "example": [
+              "社会",
+              "科技"
+            ]
+          },
+          "keywords": {
+            "type": "array",
+            "required": true,
+            "description": "用户关注关键词列表",
+            "example": [
+              "事故",
+              "经济"
+            ]
+          },
+          "platform_urls": {
+            "type": "array",
+            "required": true,
+            "description": "用户关注新闻和社交平台网址",
+            "example": [
+              {
+                "platform_name": "微博",
+                "url": "https://weibo.com"
+              },
+              {
+                "platform_name": "知乎",
+                "url": "https://zhihu.com"
+              }
+            ]
+          }
+        }
+      },
+      "response": {
+        "code": 200,
+        "message": "updated successfully",
+        "data": {
+          "fields": {
+            "type": "array",
+            "description": "更新后的关注领域"
+          },
+          "keywords": {
+            "type": "array",
+            "description": "更新后的关注关键词"
+          },
+          "platform_urls": {
+            "type": "array",
+            "description": "更新后的关注平台网址"
+          }
+        }
+      }
+    },
+      {
+      "name": "趋势数据",
+      "method": "GET",
+      "path": "/api/events/{event_id}/trend",
+      "description": "获取指定事件的舆情传播趋势数据，用于绘制事件报道量随时间变化曲线。",
+      "request": {
+        "path": {
+          "event_id": {
+            "type": "integer",
+            "required": true,
+            "description": "事件唯一ID"
+          }
+        }
+      },
+      "response": {
+        "code": 200,
+        "message": "success",
+        "data": {
+          "trend": [
+            {
+              "date": {
+                "type": "string",
+                "description": "日期"
+              },
+              "count": {
+                "type": "integer",
+                "description": "当天事件相关报道数量"
+              }
+            }
+          ]
+        }
+      },
+      "data_source": {
+        "A": [
+          "news_publish_time",
+          "article_count"
+        ],
+        "B": [
+          "trend_analysis"
+        ]
+      }
+    },
+    {
+      "name": "情感分布",
+      "method": "GET",
+      "path": "/api/events/{event_id}/sentiment",
+      "description": "获取指定事件的公众情感倾向分析结果，用于生成情感比例图。",
+      "request": {
+        "path": {
+          "event_id": {
+            "type": "integer",
+            "required": true,
+            "description": "事件唯一ID"
+          }
+        }
+      },
+      "response": {
+        "code": 200,
+        "message": "success",
+        "data": {
+          "positive": {
+            "type": "float",
+            "description": "正面情感比例"
+          },
+          "neutral": {
+            "type": "float",
+            "description": "中性情感比例"
+          },
+          "negative": {
+            "type": "float",
+            "description": "负面情感比例"
+          }
+        }
+      },
+      "data_source": {
+        "B": [
+          "sentiment_analysis_result"
+        ]
+      }
+    },
+    {
+      "name": "平台分布",
+      "method": "GET",
+      "path": "/api/events/{event_id}/platform",
+      "description": "统计不同新闻网站和社交平台对事件的报道占比。",
+      "request": {
+        "path": {
+          "event_id": {
+            "type": "integer",
+            "required": true,
+            "description": "事件唯一ID"
+          }
+        }
+      },
+      "response": {
+        "code": 200,
+        "message": "success",
+        "data": {
+          "platform_distribution": [
+            {
+              "platform_name": {
+                "type": "string",
+                "description": "平台名称",
+                "example": "微博"
+              },
+              "ratio": {
+                "type": "float",
+                "description": "该平台报道占比"
+              }
+            }
+          ]
+        }
+      },
+      "data_source": {
+        "A": [
+          "source_platform"
+        ],
+        "C": [
+          "statistics_calculation"
+        ]
+      }
+    },
+    {
+      "name": "关键词分析",
+      "method": "GET",
+      "path": "/api/events/{event_id}/keywords",
+      "description": "获取事件高频关键词及权重，用于生成关键词词云。",
+      "request": {
+        "path": {
+          "event_id": {
+            "type": "integer",
+            "required": true,
+            "description": "事件唯一ID"
+          }
+        }
+      },
+      "response": {
+        "code": 200,
+        "message": "success",
+        "data": {
+          "keywords": [
+            {
+              "word": {
+                "type": "string",
+                "description": "关键词内容"
+              },
+              "weight": {
+                "type": "float",
+                "description": "关键词权重，用于控制词云大小"
+              }
+            }
+          ]
+        }
+      },
+      "data_source": {
+        "B": [
+          "word_frequency_analysis",
+          "keyword_extraction"
+        ]
+      }
+    }
+  ]
+}
