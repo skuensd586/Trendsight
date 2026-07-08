@@ -1,4 +1,11 @@
-"""Turn a raw crawler record into a standardized Document: strip markup/boilerplate, normalize fields."""
+"""Turn a raw crawler record into a standardized Document, normalizing its fields.
+
+Noise removal (HTML entity decoding, zero-width characters, platform-specific boilerplate
+like editor credits/disclaimers/share prompts, newline normalization) is the crawler's job
+now -- see e.g. sina_crawler/crawler_sina.py's clean_content(). strip_boilerplate here is
+just a cheap defensive pass (HTML tag stripping + whitespace collapse), a safety net for
+sources that don't clean as thoroughly, not B's primary cleaning duty.
+"""
 from __future__ import annotations
 
 import re
@@ -10,19 +17,11 @@ from .text_type import resolve_text_type
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _WHITESPACE_RE = re.compile(r"\s+")
-_BOILERPLATE_PATTERNS = [
-    re.compile(r"责任编辑[:：].*"),
-    re.compile(r"免责声明[:：].*"),
-    re.compile(r"点击(进入|查看|阅读)[^\s]{0,10}"),
-    re.compile(r"扫描二维码.*"),
-]
 
 
 def strip_boilerplate(text: str) -> str:
-    """Remove HTML tags and common Chinese news boilerplate (editor credits, disclaimers, share prompts)."""
+    """Defensive cleanup: strip any leftover HTML tags and collapse whitespace."""
     text = _TAG_RE.sub(" ", text)
-    for pattern in _BOILERPLATE_PATTERNS:
-        text = pattern.sub("", text)
     return _WHITESPACE_RE.sub(" ", text).strip()
 
 

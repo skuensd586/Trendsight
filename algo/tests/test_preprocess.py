@@ -3,11 +3,14 @@ from datetime import datetime
 from algo.preprocess import hamming_distance, is_near_duplicate, normalize_document, simhash
 
 
-def test_normalize_document_strips_boilerplate_and_parses_time():
+def test_normalize_document_strips_leftover_html_and_parses_time():
+    # Platform-specific noise (editor credits, disclaimers, share prompts) is now the
+    # crawler's job (see sina_crawler's clean_content()); normalize_document only does
+    # a defensive HTML-tag/whitespace pass, not full boilerplate removal.
     raw = {
         "doc_id": "1",
         "title": "<b>某地发生突发事件</b>",
-        "content": "事件经过描述。责任编辑:张三 扫描二维码关注我们",
+        "content": "事件经过  描述。",
         "publish_time": "2026-01-02 10:00:00",
         "source": "新华社",
         "platform": "微博",
@@ -15,8 +18,7 @@ def test_normalize_document_strips_boilerplate_and_parses_time():
     }
     doc = normalize_document(raw)
     assert doc.title == "某地发生突发事件"
-    assert "责任编辑" not in doc.content
-    assert "扫描二维码" not in doc.content
+    assert doc.content == "事件经过 描述。"
     assert doc.publish_time == datetime(2026, 1, 2, 10, 0, 0)
 
 
