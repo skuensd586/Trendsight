@@ -1,3 +1,9 @@
 AGENTS.md
 .env
+.env.local
 backend/.env
+node_modules/
+dist/
+artifacts/
+.DS_Store
+*.log

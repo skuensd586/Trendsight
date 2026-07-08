@@ -1,0 +1,316 @@
+{
+  // ============================================================
+  // Trendsight 后端未覆盖字段格式规范
+  // 适用范围：
+  // 1. 后端 README 提到了接口路径，但 api-design/*.json 没有写清 response 字段。
+  // 2. 后端 README 明确暂未包含，但前端详情页已经需要展示的数据。
+  // 3. 个人中心当前需要、但 auth.json 的 preferences 没覆盖完整的数据。
+  //
+  // 说明：
+  // - 这是 JSONC，用 // 写注释；真实接口返回时请去掉注释。
+  // - 字段命名尽量贴近后端现有 snake_case 风格。
+  // - 前端可在 adapter 中映射为当前组件使用的 camelCase / 中文枚举。
+  // ============================================================
+
+  // ============================================================
+  // 1. 热点事件列表
+  // 后端 README 已列路径：GET /api/events/hot
+  // 但 api-design/events.json 未提供 response 字段，因此这里补充。
+  // 前端用途：舆情看板事件列表、排序、筛选、分页、顶部高风险数量。
+  // ============================================================
+  "GET /api/events/hot": {
+    "request": {
+      "headers": {
+        // 登录后统一携带；如果后端允许匿名查看，可暂时不校验。
+        "Authorization": "Bearer jwt_xxx"
+      },
+      "query": {
+        // 搜索关键词；匹配 title/category/location/keywords。
+        "q": "救援",
+        // 风险筛选。all 表示不过滤。
+        "risk_level": "all | high | mid_high | mid | low",
+        // 时间范围。today/7d/30d 对应前端三个按钮。
+        "time_range": "today | 7d | 30d",
+        // 排序。heat=热度，time=时间，negative=负面占比。
+        "sort": "heat | time | negative",
+        "page": 1,
+        "page_size": 7
+      }
+    },
+    "response": {
+      "code": 200,
+      "message": "success",
+      "data": {
+        "items": [
+          {
+            // 后端事件主键，整数；前端路由 /events/:id 使用这个值。
+            "event_id": 101,
+            "title": "南方强降雨救援信息快速扩散",
+            "category": "突发公共事件",
+            // 事件发生或聚合时间；建议后端统一到秒，前端显示时格式化到分钟。
+            "event_time": "2026-07-07 08:30:00",
+            "location": "华南多地",
+            // 列表摘要，控制在 80-140 字，避免事件卡片过高。
+            "summary": "事件由短时强降雨引发，多个社区发布求助与路况信息，随后官方媒体和应急部门集中回应。",
+            // 热度指数，建议 0-100；看板默认按此排序。
+            "heat": 94,
+            // 风险枚举：high=高，mid_high=中高，mid=中，low=低。
+            "risk_level": "high",
+            // 生命周期枚举沿用 prediction.json：latent/growth/peak/decline。
+            "stage": "peak",
+            // 报道量；用于事件卡片和导出简报。
+            "report_count": 14862,
+            // 情感比例，三项建议合计为 100。
+            "sentiment": {
+              "positive": 42,
+              "neutral": 34,
+              "negative": 24
+            },
+            // 列表搜索和标签展示使用；建议 3-8 个。
+            "keywords": ["救援进展", "道路积水", "官方通报"]
+          }
+        ],
+        "pagination": {
+          "page": 1,
+          "page_size": 7,
+          "total": 14,
+          "total_pages": 2
+        }
+      }
+    }
+  },
+
+  // ============================================================
+  // 2. 事件详情主体
+  // 后端 README 已列路径：GET /api/events/{event_id}
+  // 但 api-design/events.json 未提供 response 字段，因此这里补充。
+  // 前端用途：详情页顶部报告、概述、KPI、导出报告、详情页右侧问答上下文。
+  // ============================================================
+  "GET /api/events/{event_id}": {
+    "request": {
+      "headers": {
+        "Authorization": "Bearer jwt_xxx"
+      },
+      "path": {
+        "event_id": 101
+      }
+    },
+    "response": {
+      "code": 200,
+      "message": "success",
+      "data": {
+        "event_id": 101,
+        "title": "南方强降雨救援信息快速扩散",
+        "category": "突发公共事件",
+        "event_time": "2026-07-07 08:30:00",
+        "location": "华南多地",
+        // 直接起因；用于概述字段和问答回答。
+        "cause": "连续强降雨导致部分道路积水，救援求助信息在多个平台集中出现。",
+        // 涉事主体；用顿号分隔，前端可直接展示。
+        "people": "当地居民、应急救援队、气象部门、媒体记者",
+        "summary": "事件由短时强降雨引发，多个社区发布求助与路况信息，随后官方媒体和应急部门集中回应。",
+        "heat": 94,
+        "risk_level": "high",
+        "stage": "peak",
+        "report_count": 14862,
+        "sentiment": {
+          "positive": 42,
+          "neutral": 34,
+          "negative": 24
+        },
+        // 处置建议；后端可以由规则、专家录入或大模型生成。
+        "advice": "持续监测负面情绪聚集词，优先推送官方救援进展和避险路线信息。",
+        // 问答面板无命中规则时的兜底上下文，可为空字符串。
+        "qa_seed": "当前事件热度高，情绪负向来源主要集中在出行受阻与救援等待。"
+      }
+    }
+  },
+
+  // ============================================================
+  // 3. 详情页高级分析扩展
+  // 后端 README 当前明确暂未包含：虚假文本检测、事件溯源、关键传播路径分析。
+  // 建议后端短期可以先把这些字段挂在 GET /api/events/{event_id} 的 data.analytics 下；
+  // 后续若拆分接口，也请保持内部字段格式一致。
+  // ============================================================
+  "EventDetail.analytics": {
+    // ---------- 真实性 / 虚假文本检测 ----------
+    "authenticity": {
+      // 真实性置信度，0-1；前端显示为百分比。
+      "false_confidence": 0.82,
+      // 重复率，0-100；前端显示时加 %。
+      "duplicate_rate": 18.6,
+      // 真实性因子条形图；value 为 0-100。
+      "credibility_factors": [
+        {
+          "name": "官方信源一致性",
+          "value": 92
+        },
+        {
+          "name": "多源交叉出现",
+          "value": 88
+        },
+        {
+          "name": "文本重复率正常",
+          "value": 81
+        }
+      ],
+      // 真实性检查列表；tone 控制前端图标和颜色。
+      "checks": [
+        {
+          "tone": "ok | warn",
+          "title": "官方信源已交叉核实",
+          "description": "核心信息与公开通报一致。"
+        }
+      ]
+    },
+
+    // ---------- 事件溯源 Force Graph ----------
+    "traceability": {
+      // 节点 category 仅用于前端分组着色：0=初始爆料，1=社交扩散，2=官方回应，3=媒体跟进。
+      "nodes": [
+        {
+          "name": "社区求助帖",
+          "category": 0,
+          "symbol_size": 52
+        },
+        {
+          "name": "本地博主转发",
+          "category": 1,
+          "symbol_size": 42
+        }
+      ],
+      // source/target 必须能对应 nodes[].name。
+      "links": [
+        {
+          "source": "社区求助帖",
+          "target": "本地博主转发"
+        }
+      ]
+    },
+
+    // ---------- 关键传播路径桑基图 ----------
+    "propagation_sankey": {
+      "nodes": [
+        {
+          "name": "社区求助帖"
+        },
+        {
+          "name": "新闻客户端专题"
+        }
+      ],
+      // value 表示传播量级或归一化权重；数值越大，连线越粗。
+      "links": [
+        {
+          "source": "社区求助帖",
+          "target": "新闻客户端专题",
+          "value": 16
+        }
+      ]
+    },
+
+    // ---------- 地域热力 ----------
+    "geo_discussion": [
+      {
+        // name 建议使用 ECharts 中国地图正式省级名称。
+        "name": "广东省",
+        // display_name 是前端短标签，可选。
+        "display_name": "广东",
+        "lng": 113.27,
+        "lat": 23.13,
+        // 讨论量或报道量。
+        "value": 124000
+      }
+    ],
+
+    // ---------- 主题演化河流图 ----------
+    "theme_evolution": [
+      // 格式：[时间, 数值, 主题名称]。
+      ["2026/07/07 06:00", 185, "救援"],
+      ["2026/07/07 08:00", 420, "官方通报"]
+    ],
+
+    // ---------- 历史相似事件 ----------
+    "similar_events": [
+      {
+        "event_id": 88,
+        "title": "2025 年华东暴雨交通舆情",
+        // similarity 为 0-1；如果后端暂无相似度，可以先不返回。
+        "similarity": 0.78
+      }
+    ]
+  },
+
+  // ============================================================
+  // 4. 采集源配置扩展
+  // 后端 auth.json 的 preferences.platform_urls 只覆盖 platform_name/url。
+  // 前端个人中心还需要 frequency/status，用于采集源状态分组和看板右侧统计。
+  // 建议后端把以下字段作为 platform_urls item 的可选扩展。
+  // ============================================================
+  "UserPreference.platform_urls.item_extension": {
+    "platform_name": "微博热搜",
+    "url": "https://s.weibo.com/top/summary",
+    // 采集频率，单位分钟；前端显示时转成“5 分钟”等文案。
+    "frequency_minutes": 5,
+    // 状态枚举：normal=正常，limited=限流，error=异常。
+    "status": "normal | limited | error"
+  },
+
+  // ============================================================
+  // 5. 可选看板聚合数据
+  // 后端当前未定义 /api/dashboard/overview。
+  // 前端可以从 GET /api/events/hot 自行计算；如果后端希望减轻前端聚合压力，
+  // 可按以下格式补一个聚合对象，或者并入 /api/events/hot 的 data.overview。
+  // ============================================================
+  "Dashboard.overview_optional": {
+    "metrics": {
+      "monitored_event_count": 448,
+      "today_new_count": 23,
+      "high_risk_count": 2,
+      "average_negative_ratio": 30,
+      "source_count": 5,
+      "normal_source_count": 4,
+      "limited_source_count": 1
+    },
+    "insight": {
+      "high_risk_events": [
+        {
+          "event_id": 101,
+          "title": "南方强降雨救援信息快速扩散",
+          "heat": 94
+        }
+      ],
+      "hot_keywords": ["救援进展", "官方通报", "售后体验"],
+      "rising_negative_events": [
+        {
+          "event_id": 102,
+          "title": "新能源车售后争议引发集中讨论",
+          "negative": 45
+        }
+      ]
+    }
+  },
+
+  // ============================================================
+  // 6. 枚举映射表
+  // 后端返回英文枚举，前端显示中文。
+  // ============================================================
+  "enum_mapping": {
+    "risk_level": {
+      "high": "高",
+      "mid_high": "中高",
+      "mid": "中",
+      "low": "低"
+    },
+    "stage": {
+      "latent": "潜伏期",
+      "growth": "成长期",
+      "peak": "高潮期",
+      "decline": "衰退期"
+    },
+    "source_status": {
+      "normal": "正常",
+      "limited": "限流",
+      "error": "异常"
+    }
+  }
+}

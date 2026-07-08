@@ -1,0 +1,312 @@
+{
+  // ============================================================
+  // Trendsight 后端已覆盖接口 payload 样例
+  // 目的：前端接入时按后端 api-design 的路径和字段解包。
+  // 说明：这是 JSONC，用 // 写注释；真实接口返回时请去掉注释。
+  // ============================================================
+
+  // ============================================================
+  // 1. 登录
+  // 后端来源：api-design/auth.json -> POST /api/auth/login
+  // 前端处理：保存 token；后续请求带 Authorization: Bearer <token>。
+  // ============================================================
+  "POST /api/auth/login": {
+    "request": {
+      "username": "analyst",
+      "password": "123456"
+    },
+    "response": {
+      "code": 200,
+      "message": "success",
+      "data": {
+        "user_id": 1,
+        "username": "analyst",
+        "token": "jwt_xxx"
+      }
+    }
+  },
+
+  // ============================================================
+  // 2. 获取用户信息与关注配置
+  // 后端来源：api-design/auth.json -> GET /api/user/profile
+  // 注意：preferences.fields 是“关注领域”，不是数据库字段 fields。
+  // ============================================================
+  "GET /api/user/profile": {
+    "request": {
+      "headers": {
+        "Authorization": "Bearer jwt_xxx"
+      }
+    },
+    "response": {
+      "code": 200,
+      "message": "success",
+      "data": {
+        "user_id": 1,
+        "username": "analyst",
+        "preferences": {
+          "fields": ["突发公共事件", "消费权益", "教育民生", "城市治理"],
+          "keywords": ["救援", "官方通报", "售后争议", "校园服务", "交通延误"],
+          "platform_urls": [
+            {
+              "platform_name": "微博热搜",
+              "url": "https://s.weibo.com/top/summary"
+            },
+            {
+              "platform_name": "知乎热榜",
+              "url": "https://www.zhihu.com/billboard"
+            }
+          ]
+        }
+      }
+    }
+  },
+
+  // ============================================================
+  // 3. 更新关注配置
+  // 后端来源：api-design/auth.json -> PUT /api/user/preferences
+  // 注意：README 里出现过 /api/user/settings，但 auth.json 的详细定义是 /api/user/preferences。
+  // ============================================================
+  "PUT /api/user/preferences": {
+    "request": {
+      "headers": {
+        "Authorization": "Bearer jwt_xxx"
+      },
+      "body": {
+        "fields": ["突发公共事件", "消费权益"],
+        "keywords": ["救援", "官方通报"],
+        "platform_urls": [
+          {
+            "platform_name": "微博热搜",
+            "url": "https://s.weibo.com/top/summary"
+          }
+        ]
+      }
+    },
+    "response": {
+      "code": 200,
+      "message": "updated successfully",
+      "data": {
+        "fields": ["突发公共事件", "消费权益"],
+        "keywords": ["救援", "官方通报"],
+        "platform_urls": [
+          {
+            "platform_name": "微博热搜",
+            "url": "https://s.weibo.com/top/summary"
+          }
+        ]
+      }
+    }
+  },
+
+  // ============================================================
+  // 4. 事件趋势数据
+  // 后端来源：api-design/events.json -> GET /api/events/{event_id}/trend
+  // 前端映射：date -> time，count -> value。
+  // ============================================================
+  "GET /api/events/{event_id}/trend": {
+    "request": {
+      "path": {
+        "event_id": 101
+      }
+    },
+    "response": {
+      "code": 200,
+      "message": "success",
+      "data": {
+        "trend": [
+          {
+            "date": "2026-07-07 06:00:00",
+            "count": 420
+          },
+          {
+            "date": "2026-07-07 08:00:00",
+            "count": 980
+          }
+        ]
+      }
+    }
+  },
+
+  // ============================================================
+  // 5. 情感分布
+  // 后端来源：api-design/events.json -> GET /api/events/{event_id}/sentiment
+  // 约定：positive/neutral/negative 使用 0-100 百分比数字。
+  // ============================================================
+  "GET /api/events/{event_id}/sentiment": {
+    "request": {
+      "path": {
+        "event_id": 101
+      }
+    },
+    "response": {
+      "code": 200,
+      "message": "success",
+      "data": {
+        "positive": 42,
+        "neutral": 34,
+        "negative": 24
+      }
+    }
+  },
+
+  // ============================================================
+  // 6. 平台分布
+  // 后端来源：api-design/events.json -> GET /api/events/{event_id}/platform
+  // 前端映射：platform_name -> name，ratio -> value。
+  // ============================================================
+  "GET /api/events/{event_id}/platform": {
+    "request": {
+      "path": {
+        "event_id": 101
+      }
+    },
+    "response": {
+      "code": 200,
+      "message": "success",
+      "data": {
+        "platform_distribution": [
+          {
+            "platform_name": "微博",
+            "ratio": 42
+          },
+          {
+            "platform_name": "新闻客户端",
+            "ratio": 26
+          }
+        ]
+      }
+    }
+  },
+
+  // ============================================================
+  // 7. 关键词分析
+  // 后端来源：api-design/events.json -> GET /api/events/{event_id}/keywords
+  // 前端映射：word/weight 生成词云 words，同时可取 word 生成 keywords 标签。
+  // ============================================================
+  "GET /api/events/{event_id}/keywords": {
+    "request": {
+      "path": {
+        "event_id": 101
+      }
+    },
+    "response": {
+      "code": 200,
+      "message": "success",
+      "data": {
+        "keywords": [
+          {
+            "word": "救援",
+            "weight": 96
+          },
+          {
+            "word": "官方通报",
+            "weight": 74
+          }
+        ]
+      }
+    }
+  },
+
+  // ============================================================
+  // 8. 生命周期预测
+  // 后端来源：api-design/prediction.json -> GET /api/events/{event_id}/lifecycle
+  // 前端显示映射：latent=潜伏期，growth=成长期，peak=高潮期，decline=衰退期。
+  // ============================================================
+  "GET /api/events/{event_id}/lifecycle": {
+    "request": {
+      "headers": {
+        "Authorization": "Bearer jwt_xxx"
+      },
+      "path": {
+        "event_id": 101
+      }
+    },
+    "response": {
+      "code": 200,
+      "message": "success",
+      "data": {
+        "event_id": 101,
+        "stage": "peak",
+        "confidence": 0.86,
+        "stage_probability": {
+          "latent": 0.04,
+          "growth": 0.18,
+          "peak": 0.68,
+          "decline": 0.1
+        },
+        "future_trend": [
+          {
+            "date": "2026-07-08",
+            "predict_heat": 88.5,
+            "predict_count": 4200
+          }
+        ],
+        "analysis": "当前事件报道数量持续增加，公众关注度较高，处于高潮期。"
+      }
+    }
+  },
+
+  // ============================================================
+  // 9. 大模型问答
+  // 后端来源：api-design/qa.json -> POST /api/events/{event_id}/qa
+  // 首次提问 conversation_id 可以为空；后端返回后续对话 ID。
+  // ============================================================
+  "POST /api/events/{event_id}/qa": {
+    "request": {
+      "headers": {
+        "Authorization": "Bearer jwt_xxx"
+      },
+      "path": {
+        "event_id": 101
+      },
+      "body": {
+        "conversation_id": "",
+        "question": "当前事件为什么升温？"
+      }
+    },
+    "response": {
+      "code": 200,
+      "message": "success",
+      "data": {
+        "conversation_id": "conv_20260707_001",
+        "answer": "升温原因主要来自救援求助信息扩散和官方通报节点传播。",
+        "created_time": "2026-07-07 12:30:00"
+      }
+    }
+  },
+
+  // ============================================================
+  // 10. 聊天历史
+  // 后端来源：api-design/qa.json -> GET /api/qa/history/{conversation_id}
+  // 前端映射：content -> text。
+  // ============================================================
+  "GET /api/qa/history/{conversation_id}": {
+    "request": {
+      "headers": {
+        "Authorization": "Bearer jwt_xxx"
+      },
+      "path": {
+        "conversation_id": "conv_20260707_001"
+      }
+    },
+    "response": {
+      "code": 200,
+      "message": "success",
+      "data": {
+        "conversation_id": "conv_20260707_001",
+        "messages": [
+          {
+            "role": "user",
+            "content": "当前事件为什么升温？",
+            "time": "2026-07-07 12:29:40"
+          },
+          {
+            "role": "assistant",
+            "content": "升温原因主要来自救援求助信息扩散和官方通报节点传播。",
+            "time": "2026-07-07 12:30:00"
+          }
+        ]
+      }
+    }
+  }
+}
