@@ -40,16 +40,25 @@ def parse_publish_time(value: Any) -> datetime:
 
 
 def normalize_document(raw: dict[str, Any]) -> Document:
-    """Map a raw crawler record (arbitrary key casing/format) onto the standard Document schema."""
-    platform = raw.get("platform", "")
+    """Map a raw crawler record onto the standard Document schema.
+
+    Field names accept both sina_crawler's real `raw_documents` columns
+    (source_platform/source_url, per sina_crawler/docs/data_interface.md) and this
+    module's own shorter names (platform/url, used by sample_data.py and tests) --
+    the crawler doesn't have a separate "outlet name" field distinct from platform, so
+    `source` falls back to platform too when not given explicitly.
+    """
+    platform = raw.get("source_platform") or raw.get("platform", "")
+    url = raw.get("source_url") or raw.get("url", "")
+    source = raw.get("source") or platform
     return Document(
         doc_id=str(raw["doc_id"]),
         title=strip_boilerplate(raw.get("title", "")),
         content=strip_boilerplate(raw.get("content", "")),
         publish_time=parse_publish_time(raw["publish_time"]),
-        source=raw.get("source", ""),
+        source=source,
         platform=platform,
-        url=raw.get("url", ""),
+        url=url,
         author=raw.get("author", ""),
         text_type=resolve_text_type(platform),
     )

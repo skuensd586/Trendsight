@@ -20,6 +20,29 @@ def test_normalize_document_strips_boilerplate_and_parses_time():
     assert doc.publish_time == datetime(2026, 1, 2, 10, 0, 0)
 
 
+def test_normalize_document_accepts_sina_crawler_field_names():
+    # Real shape from sina_crawler's build_document() / raw_documents table
+    # (sina_crawler/docs/data_interface.md): source_platform/source_url, no
+    # separate "source" field, publish_time already a datetime object.
+    raw = {
+        "doc_id": "b6f0f6c2-0000-0000-0000-000000000000",
+        "source_platform": "新浪新闻",
+        "source_url": "https://news.sina.com.cn/example",
+        "title": "某地发生突发事件",
+        "content": "事件经过描述。",
+        "author": "新华网",
+        "publish_time": datetime(2026, 1, 2, 10, 0, 0),
+        "crawl_time": datetime(2026, 1, 2, 10, 5, 0),
+        "content_hash": "12345",
+        "event_id": None,
+    }
+    doc = normalize_document(raw)
+    assert doc.platform == "新浪新闻"
+    assert doc.url == "https://news.sina.com.cn/example"
+    assert doc.source == "新浪新闻"  # no separate outlet field upstream, falls back to platform
+    assert doc.publish_time == datetime(2026, 1, 2, 10, 0, 0)
+
+
 def test_simhash_identical_text_is_a_near_duplicate_of_itself():
     fp = simhash("某地今日发生一起交通事故，事故造成多人受伤，现场救援人员迅速赶到")
     assert is_near_duplicate(fp, fp)

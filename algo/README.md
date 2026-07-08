@@ -125,6 +125,39 @@ python -m scripts.validate_domain_shift --text-type comment --data-text-type art
 article 模型了，反过来跑 `--text-type article --data-text-type comment` 验证"文章
 模型在评论文本上表现如何"，用的是同一个工具。
 
+## 对齐爬虫模块（sina_crawler）
+
+`main` 分支新增了 `sina_crawler/`（A 模块，新浪新闻爬虫），`sina_crawler/docs/data_interface.md`
+定义了它实际写入 `raw_documents` 表、以及内存直传给 B 的字段名。跟我之前假设的字段名有出入，
+已经在 `preprocess/clean.py` 里改成两种命名都兼容：
+
+|真实字段（sina_crawler）|本模块原先假设的字段（sample_data.py/测试用）|`Document` 上的字段|
+|-|-|-|
+|`source_platform`|`platform`|`platform`（`normalize_document` 优先取 `source_platform`，取不到再退回 `platform`）|
+|`source_url`|`url`|`url`（同上，优先 `source_url`）|
+|（没有单独的字段）|`source`|`source`：爬虫没有区分"平台"和"具体媒体来源"，没给 `source` 时直接用 platform 顶上|
+
+同时把 `"新浪新闻"` 加进了 `preprocess/text_type.py` 的平台映射表（归为 `article`，因为
+新浪新闻是长篇正文报道，不是短评论）。
+
+**还没对齐/需要跟 A、C 同步的地方：**
+
+- `raw_documents` 表已经有 `content_hash`（爬虫用第三方 `simhash` 库算的，`str(Simhash(content).value)`），
+  跟我这边 `preprocess/dedup.py` 自己实现的 SimHash 不是同一套算法，数值对不上，
+  现在的做法是**忽略爬虫给的 `content_hash`，B 自己重新算**——如果以后想复用爬虫算好的
+  哈希省一次计算，需要把 B 的 SimHash 实现换成跟爬虫一样的第三方 `simhash` 库，目前没做。
+- `data_interface.md` 里 A→B 传参用的是伪代码 `nlp.analyze_and_update(new_docs)`，隐含
+  B 要把 `sentiment_label`/`sentiment_score`/`keywords`/`event_id`/`clean_status`
+  这几列写回 `raw_documents` 表——现在 `pipeline.py` 只是纯函数、不碰数据库，回写 DB
+  这层还没写，等联调阶段（C 那边数据库连接方式定下来、`events` 表建好）再补一个薄的
+  适配层，不在这次"对齐字段名"的范围内提前写。
+- `sina_crawler` 自己的 `schema.sql` 和 `docs/data_interface.md` 对 `sentiment_label`/
+  `keywords` 到底是 "B 回填" 还是 "C 回填" 写得不一致（`schema.sql` 注释写的是 C，
+  `data_interface.md` 正文写的是 B），`api-design/README.md` 里 B 模块的职责描述也支持
+  "B 回填"——这个后续应该是 B，但建议跟 A、C 那边确认一下，把 `schema.sql` 里的注释改对。
+- `schema.sql` 里 `clean_status` 那一行后面有个多余的逗号，直接执行会报 SQL 语法错误
+  （`... COMMENT '...',\n)  ENGINE=...`），建议告诉负责这个文件的同学改一下。
+
 ## 对齐后端 api-design 接口
 
 `main` 分支新增了 `api-design/`（`events.json`、`prediction.json` 等），定义了后端
