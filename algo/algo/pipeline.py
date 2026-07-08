@@ -19,7 +19,7 @@ from .cluster import compute_hotness, single_pass_cluster
 from .nlp import extract_keywords, tokenize
 from .preprocess import is_near_duplicate, normalize_document, simhash
 from .schema import Document
-from .sentiment import classify_sentiment
+from .sentiment import classify_sentiment, predict_sentiment
 from .trend import (
     bucket_report_counts,
     daily_report_counts,
@@ -64,10 +64,25 @@ def _keywords(corpus_tokens: list[list[str]], top_k: int) -> list[dict[str, Any]
     return [{"word": term, "weight": round(score / max_score, 3)} for term, score in ranked]
 
 
-def _sentiment_distribution(corpus_tokens: list[list[str]]) -> dict[str, float]:
+def _sentiment_distribution(docs: list[Document], corpus_tokens: list[list[str]]) -> dict[str, float]:
+    """Classify each document's sentiment and return the positive/neutral/negative ratio.
+
+    Prefers the ML model (predict_sentiment), routing each document through its text_type
+    so comment and article models are used independently.  Falls back to the lexicon-based
+    classifier for the entire batch if no trained model file is found — this keeps the
+    pipeline functional before `scripts/train_sentiment_model.py` has been run.
+    """
     counts = {"positive": 0, "negative": 0, "neutral": 0}
-    for tokens in corpus_tokens:
-        label, _ = classify_sentiment(tokens)
+    use_ml = True
+    for doc, tokens in zip(docs, corpus_tokens):
+        if use_ml:
+            try:
+                label = predict_sentiment(doc.title + " " + doc.content, doc.text_type)
+            except FileNotFoundError:
+                use_ml = False
+                label, _ = classify_sentiment(tokens)
+        else:
+            label, _ = classify_sentiment(tokens)
         counts[label] += 1
     total = sum(counts.values()) or 1
     return {label: round(count / total, 3) for label, count in counts.items()}
@@ -127,7 +142,7 @@ def analyze_event(
         "report_count": len(docs),
         "duplicate_count": duplicate_count,
         "heat": round(compute_hotness(publish_times, now=now), 3),
-        "sentiment": _sentiment_distribution(corpus_tokens),
+        "sentiment": _sentiment_distribution(docs, corpus_tokens),
         "keywords": _keywords(corpus_tokens, top_k_keywords),
         "platform_distribution": _platform_distribution(docs),
         "sources": sorted({doc.source for doc in docs}),

@@ -1,8 +1,11 @@
 import re
 from datetime import datetime
 
+import pytest
+
 from algo.pipeline import discover_events, run_pipeline
 from algo.sample_data import RAW_RECORDS
+from algo.sentiment import ml_sentiment
 
 _HAS_WORD_CHAR_RE = re.compile(r"[一-鿿\w]")
 
@@ -36,7 +39,12 @@ def test_older_event_scores_lower_heat_despite_similar_report_count():
     assert flood["heat"] > canteen["heat"]
 
 
-def test_sentiment_matches_the_planted_tone_per_event():
+def test_sentiment_matches_the_planted_tone_per_event(tmp_path):
+    # Point MODEL_DIR at an empty directory so the pipeline falls back to the lexicon
+    # classifier, which is what the "planted tone" assertions are calibrated against.
+    # ML model accuracy on this sample corpus depends on domain overlap with the training
+    # data (hotel reviews), which the fake news texts don't have.
+    ml_sentiment.MODEL_DIR = tmp_path
     reports = run_pipeline(RAW_RECORDS, now=NOW, dedup_threshold=DEDUP_THRESHOLD)
     phone = _report_for(reports, "evt-phone")["sentiment"]
     canteen = _report_for(reports, "evt-canteen")["sentiment"]
@@ -65,6 +73,15 @@ def test_pipeline_includes_trend_and_lifecycle_fields():
     assert flood["key_timepoints"]
     assert flood["future_trend"]
     assert sum(p["count"] for p in flood["trend"]) == flood["report_count"]
+
+
+def test_sentiment_uses_ml_model_when_one_is_available(toy_comment_model_dir):
+    ml_sentiment.MODEL_DIR = toy_comment_model_dir
+    reports = run_pipeline(RAW_RECORDS, now=NOW, dedup_threshold=DEDUP_THRESHOLD)
+    for report in reports:
+        dist = report["sentiment"]
+        assert set(dist) == {"positive", "negative", "neutral"}
+        assert abs(sum(dist.values()) - 1.0) < 1e-9
 
 
 def test_pipeline_runs_over_events_discovered_without_ground_truth_labels():
