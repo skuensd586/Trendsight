@@ -71,8 +71,21 @@ def test_pipeline_includes_trend_and_lifecycle_fields():
     flood = _report_for(reports, "evt-flood")
     assert flood["stage"] == "decline"
     assert flood["key_timepoints"]
-    assert flood["future_trend"]
+    assert flood["lifecycle"]["future_trend"]
+    assert flood["lifecycle"]["stage"] == flood["stage"]
     assert sum(p["count"] for p in flood["trend"]) == flood["report_count"]
+
+
+def test_pipeline_output_matches_api_contract():
+    reports = run_pipeline(RAW_RECORDS, now=NOW, dedup_threshold=DEDUP_THRESHOLD)
+    for report in reports:
+        assert "time_start" in report and "time_end" in report
+        assert "time_range" not in report
+        assert "event_time" in report
+        assert report["risk_level"] in ("high", "mid_high", "mid", "low")
+        lc = report["lifecycle"]
+        for key in ("stage", "confidence", "stage_probability", "future_trend", "analysis"):
+            assert key in lc, f"lifecycle missing '{key}'"
 
 
 def test_sentiment_uses_ml_model_when_one_is_available(toy_comment_model_dir):

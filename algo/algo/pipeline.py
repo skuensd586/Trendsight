@@ -98,10 +98,38 @@ def _platform_distribution(docs: list[Document]) -> list[dict[str, Any]]:
     ]
 
 
+_RISK_THRESHOLDS = [("high", 40), ("mid_high", 15), ("mid", 5), ("low", 0)]
+
+
+def _risk_level(heat: float, sentiment: dict[str, float]) -> str:
+    """Rule-based risk level: heat amplified by negative-sentiment ratio.
+
+    Tiers (high/mid_high/mid/low) map to the risk_level filter in
+    api-design/events.json's /api/events/hot endpoint.  Thresholds are heuristic
+    and should be re-calibrated once real labelled data is available.
+    """
+    score = heat * (1.0 + sentiment.get("negative", 0.0) * 2.0)
+    for level, threshold in _RISK_THRESHOLDS:
+        if score >= threshold:
+            return level
+    return "low"
+
+
+def _event_time(daily_trend: list[dict[str, Any]], time_start: str) -> str:
+    """Representative timestamp for the event: noon on the peak-activity day."""
+    if not daily_trend:
+        return time_start
+    peak_day = max(daily_trend, key=lambda d: d["count"])
+    return peak_day["date"] + "T12:00:00"
+
+
 def _lifecycle(daily_trend: list[dict[str, Any]], publish_times: list[datetime], now: datetime | None, bucket_hours: float) -> dict[str, Any]:
-    # Stage/changepoint detection use finer buckets (more resolution on *when* things
-    # shifted); the forecast extrapolates the same daily series shown in `trend`, so its
-    # dates line up with the historical chart instead of drifting on a 6h-aligned clock.
+    """Return a `lifecycle` object (api-design/prediction.json shape) plus `key_timepoints`.
+
+    `lifecycle` contains: stage / confidence / stage_probability / future_trend / analysis.
+    `key_timepoints` is an extra field not yet in the API contract, kept for the frontend
+    trend chart's "关键时间节点" markers.
+    """
     fine_counts = bucket_report_counts(publish_times, bucket_hours=bucket_hours, now=now)
     fine_bucket_starts = [min(publish_times) + timedelta(hours=bucket_hours * i) for i in range(len(fine_counts))]
 
@@ -110,11 +138,8 @@ def _lifecycle(daily_trend: list[dict[str, Any]], publish_times: list[datetime],
 
     prediction = predict_lifecycle(fine_counts)
     prediction["future_trend"] = forecast_future_trend(daily_counts, last_day, bucket_hours=24.0)
-    # Not yet part of the api-design contract (events.json/prediction.json have no slot for
-    # it), but useful for the "关键时间节点" markers the original spec calls for on the trend
-    # chart -- kept as an extra field until the backend adds one.
-    prediction["key_timepoints"] = [fine_bucket_starts[i].isoformat() for i in detect_changepoints(fine_counts)]
-    return prediction
+    key_timepoints = [fine_bucket_starts[i].isoformat() for i in detect_changepoints(fine_counts)]
+    return prediction, key_timepoints
 
 
 def analyze_event(
@@ -136,22 +161,33 @@ def analyze_event(
     corpus_tokens = [tokenize(doc.title + " " + doc.content) for doc in docs]
     publish_times = [doc.publish_time for doc in docs]
 
-    report = {
+    sentiment = _sentiment_distribution(docs, corpus_tokens)
+    time_start = min(publish_times).isoformat() if docs else None
+    time_end = max(publish_times).isoformat() if docs else None
+    heat = round(compute_hotness(publish_times, now=now), 3)
+
+    report: dict[str, Any] = {
         "event_id": raws[0]["event_id"] if raws else None,
         "title": docs[0].title if docs else "",
         "report_count": len(docs),
         "duplicate_count": duplicate_count,
-        "heat": round(compute_hotness(publish_times, now=now), 3),
-        "sentiment": _sentiment_distribution(docs, corpus_tokens),
+        "heat": heat,
+        "risk_level": _risk_level(heat, sentiment),
+        "sentiment": sentiment,
         "keywords": _keywords(corpus_tokens, top_k_keywords),
         "platform_distribution": _platform_distribution(docs),
         "sources": sorted({doc.source for doc in docs}),
-        "time_range": [min(publish_times).isoformat(), max(publish_times).isoformat()] if docs else None,
+        "time_start": time_start,
+        "time_end": time_end,
     }
     if docs:
         daily_trend = daily_report_counts(publish_times)
+        report["event_time"] = _event_time(daily_trend, time_start)
         report["trend"] = daily_trend
-        report.update(_lifecycle(daily_trend, publish_times, now, lifecycle_bucket_hours))
+        lifecycle, key_timepoints = _lifecycle(daily_trend, publish_times, now, lifecycle_bucket_hours)
+        report["stage"] = lifecycle["stage"]       # top-level for /hot list view
+        report["lifecycle"] = lifecycle            # nested for /events/{id} detail view
+        report["key_timepoints"] = key_timepoints  # extra, not in API contract yet
     return report
 
 
