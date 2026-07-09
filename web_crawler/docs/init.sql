@@ -28,35 +28,7 @@ CREATE TABLE IF NOT EXISTS raw_documents (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='多平台新闻帖子原始数据';
 
--- 2. 舆情事件分析结果表（B 模块写入，C 模块读取）
-CREATE TABLE IF NOT EXISTS events (
-    id                    INT           NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    title                 VARCHAR(500)  NOT NULL              COMMENT '事件标题',
-    heat                  FLOAT         DEFAULT 0             COMMENT '热度指数',
-    stage                 VARCHAR(20)   DEFAULT NULL          COMMENT '生命周期阶段 latent/growth/peak/decline',
-    risk_level            VARCHAR(20)   DEFAULT NULL          COMMENT '风险等级 high/mid_high/mid/low',
-    event_time            DATETIME      DEFAULT NULL          COMMENT '事件代表时间（峰值日正午）',
-    time_start            DATETIME      DEFAULT NULL          COMMENT '最早报道时间',
-    time_end              DATETIME      DEFAULT NULL          COMMENT '最晚报道时间',
-    sentiment_positive    FLOAT         DEFAULT NULL          COMMENT '正面情感比例',
-    sentiment_neutral     FLOAT         DEFAULT NULL          COMMENT '中性情感比例',
-    sentiment_negative    FLOAT         DEFAULT NULL          COMMENT '负面情感比例',
-    keywords              TEXT          DEFAULT NULL          COMMENT '关键词 JSON [{word,weight}]',
-    platform_distribution TEXT          DEFAULT NULL          COMMENT '平台分布 JSON [{platform_name,ratio}]',
-    lifecycle             TEXT          DEFAULT NULL          COMMENT '生命周期数据 JSON',
-    trend                 TEXT          DEFAULT NULL          COMMENT '趋势时序 JSON [{date,count}]',
-    report_count          INT           DEFAULT 0             COMMENT '去重后有效报道数',
-    created_at            DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at            DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-
-    INDEX idx_heat       (heat),
-    INDEX idx_stage      (stage),
-    INDEX idx_risk       (risk_level),
-    INDEX idx_event_time (event_time)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='舆情事件分析结果';
-
--- 3. 用户表（C 模块认证）
+-- 2. 用户表（C 模块认证）
 CREATE TABLE IF NOT EXISTS users (
     id            INT           NOT NULL AUTO_INCREMENT PRIMARY KEY,
     username      VARCHAR(64)   NOT NULL UNIQUE,
@@ -66,7 +38,7 @@ CREATE TABLE IF NOT EXISTS users (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='用户账号';
 
--- 4. 用户偏好配置表
+-- 3. 用户偏好配置表
 CREATE TABLE IF NOT EXISTS user_preferences (
     id            INT           NOT NULL AUTO_INCREMENT PRIMARY KEY,
     user_id       INT           NOT NULL UNIQUE,
@@ -79,7 +51,7 @@ CREATE TABLE IF NOT EXISTS user_preferences (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='用户关注偏好';
 
--- 5. 社交平台评论原始数据表
+-- 4. 社交平台评论原始数据表
 CREATE TABLE IF NOT EXISTS raw_comments (
     comment_id       VARCHAR(64)   NOT NULL PRIMARY KEY COMMENT '微博接口返回的评论 ID 字符串',
     source_platform  VARCHAR(20)   NOT NULL             COMMENT '来源平台',
