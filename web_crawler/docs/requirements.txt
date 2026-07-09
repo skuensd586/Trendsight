@@ -1,0 +1,8 @@
+﻿APScheduler>=3.11
+newspaper3k>=0.2
+python-dotenv>=0.21
+PyMySQL>=1.0
+readability-lxml>=0.8
+requests>=2.31
+simhash>=2.1
+SQLAlchemy>=1.4

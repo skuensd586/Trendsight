@@ -1,6 +1,6 @@
 {
-  "module": "auth",
-  "description": "用户认证与个人中心相关接口，包括用户登录、用户信息查询以及关注配置管理。",
+  "module": "events",
+  "description": "舆情事件展示与分析相关接口，包括热点事件列表、事件详情分析报告以及趋势、情感、平台、关键词等分析数据。",
   "apis": [
     {
       "name": "用户登录",
@@ -35,7 +35,7 @@
           },
           "token": {
             "type": "string",
-            "description": "JWT身份认证Token，用于后续接口身份验证"
+            "description": "JWT身份认证Token"
           }
         }
       }
@@ -44,7 +44,7 @@
       "name": "获取用户信息",
       "method": "GET",
       "path": "/api/user/profile",
-      "description": "获取当前登录用户的信息以及个人关注配置，用于个人中心展示。",
+      "description": "获取当前登录用户的信息以及个人关注配置。",
       "request": {
         "headers": {
           "Authorization": {
@@ -72,16 +72,15 @@
             "fields": {
               "fields": {
                 "type": "array",
-                "description": "用户关注领域列表",
+                "description": "关注领域列表",
                 "example": [
                   "社会",
-                  "科技",
-                  "财经"
+                  "科技"
                 ]
               },
               "keywords": {
                 "type": "array",
-                "description": "用户关注关键词列表",
+                "description": "关注关键词列表",
                 "example": [
                   "事故",
                   "疫情"
@@ -89,17 +88,15 @@
               },
               "platform_urls": {
                 "type": "array",
-                "description": "用户关注的新闻及社交平台网址列表",
+                "description": "关注平台网址列表",
                 "items": {
                   "platform_name": {
                     "type": "string",
-                    "description": "平台名称",
-                    "example": "微博"
+                    "description": "平台名称"
                   },
                   "url": {
                     "type": "string",
-                    "description": "平台网址",
-                    "example": "https://weibo.com"
+                    "description": "平台网址"
                   }
                 }
               }
@@ -117,43 +114,24 @@
         "headers": {
           "Authorization": {
             "type": "string",
-            "example": "Bearer jwt_xxx",
-            "description": "用户身份认证请求头"
+            "example": "Bearer jwt_xxx"
           }
         },
         "body": {
           "fields": {
             "type": "array",
             "required": true,
-            "description": "用户关注领域列表",
-            "example": [
-              "社会",
-              "科技"
-            ]
+            "description": "关注领域列表"
           },
           "keywords": {
             "type": "array",
             "required": true,
-            "description": "用户关注关键词列表",
-            "example": [
-              "事故",
-              "经济"
-            ]
+            "description": "关注关键词列表"
           },
           "platform_urls": {
             "type": "array",
             "required": true,
-            "description": "用户关注新闻和社交平台网址",
-            "example": [
-              {
-                "platform_name": "微博",
-                "url": "https://weibo.com"
-              },
-              {
-                "platform_name": "知乎",
-                "url": "https://zhihu.com"
-              }
-            ]
+            "description": "关注平台网址列表"
           }
         }
       },
@@ -176,11 +154,11 @@
         }
       }
     },
-      {
+    {
       "name": "趋势数据",
       "method": "GET",
       "path": "/api/events/{event_id}/trend",
-      "description": "获取指定事件的舆情传播趋势数据，用于绘制事件报道量随时间变化曲线。",
+      "description": "获取指定事件的舆情传播趋势数据。",
       "request": {
         "path": {
           "event_id": {
@@ -202,7 +180,7 @@
               },
               "count": {
                 "type": "integer",
-                "description": "当天事件相关报道数量"
+                "description": "报道数量"
               }
             }
           ]
@@ -222,7 +200,7 @@
       "name": "情感分布",
       "method": "GET",
       "path": "/api/events/{event_id}/sentiment",
-      "description": "获取指定事件的公众情感倾向分析结果，用于生成情感比例图。",
+      "description": "获取指定事件的公众情感倾向分析结果。",
       "request": {
         "path": {
           "event_id": {
@@ -278,12 +256,11 @@
             {
               "platform_name": {
                 "type": "string",
-                "description": "平台名称",
-                "example": "微博"
+                "description": "平台名称"
               },
               "ratio": {
                 "type": "float",
-                "description": "该平台报道占比"
+                "description": "报道占比"
               }
             }
           ]
@@ -302,7 +279,7 @@
       "name": "关键词分析",
       "method": "GET",
       "path": "/api/events/{event_id}/keywords",
-      "description": "获取事件高频关键词及权重，用于生成关键词词云。",
+      "description": "获取事件高频关键词及权重，用于生成词云。",
       "request": {
         "path": {
           "event_id": {
@@ -320,11 +297,11 @@
             {
               "word": {
                 "type": "string",
-                "description": "关键词内容"
+                "description": "关键词"
               },
               "weight": {
                 "type": "float",
-                "description": "关键词权重，用于控制词云大小"
+                "description": "权重"
               }
             }
           ]
@@ -334,6 +311,401 @@
         "B": [
           "word_frequency_analysis",
           "keyword_extraction"
+        ]
+      }
+    },
+    {
+      "name": "热点事件列表",
+      "method": "GET",
+      "path": "/api/events/hot",
+      "description": "获取首页舆情事件看板的热点事件列表，支持分页、排序和筛选。",
+      "request": {
+        "headers": {
+          "Authorization": {
+            "type": "string",
+            "example": "Bearer jwt_xxx",
+            "description": "用户身份认证Token"
+          }
+        },
+        "query": {
+          "q": {
+            "type": "string",
+            "required": false,
+            "description": "搜索关键词，匹配标题/分类/地点/关键词"
+          },
+          "risk_level": {
+            "type": "string",
+            "required": false,
+            "description": "风险筛选：all / high / mid_high / mid / low，默认 all"
+          },
+          "time_range": {
+            "type": "string",
+            "required": false,
+            "description": "时间范围：today / 7d / 30d，默认 7d"
+          },
+          "sort": {
+            "type": "string",
+            "required": false,
+            "description": "排序：heat / time / negative，默认 heat"
+          },
+          "page": {
+            "type": "integer",
+            "required": false,
+            "description": "页码，默认1"
+          },
+          "page_size": {
+            "type": "integer",
+            "required": false,
+            "description": "每页条数，默认20"
+          }
+        }
+      },
+      "response": {
+        "code": 200,
+        "message": "success",
+        "data": {
+          "pagination": {
+            "page": {
+              "type": "integer",
+              "description": "当前页码"
+            },
+            "page_size": {
+              "type": "integer",
+              "description": "每页条数"
+            },
+            "total": {
+              "type": "integer",
+              "description": "总记录数"
+            },
+            "total_pages": {
+              "type": "integer",
+              "description": "总页数"
+            }
+          },
+          "items": [
+            {
+              "event_id": {
+                "type": "integer",
+                "description": "事件唯一ID"
+              },
+              "title": {
+                "type": "string",
+                "description": "事件标题"
+              },
+              "category": {
+                "type": "string",
+                "description": "事件分类（来源待确认：需与算法模块确认）"
+              },
+              "event_time": {
+                "type": "string",
+                "description": "事件代表时间，格式 YYYY-MM-DD HH:mm:ss"
+              },
+              "location": {
+                "type": "string",
+                "description": "事件地点（来源待确认）"
+              },
+              "summary": {
+                "type": "string",
+                "description": "事件简要描述"
+              },
+              "heat": {
+                "type": "float",
+                "description": "热度指数"
+              },
+              "risk_level": {
+                "type": "string",
+                "description": "风险等级（来源待确认），枚举：high/mid_high/mid/low"
+              },
+              "stage": {
+                "type": "string",
+                "description": "生命周期阶段，枚举：latent/growth/peak/decline"
+              },
+              "report_count": {
+                "type": "integer",
+                "description": "去重后有效报道数"
+              },
+              "sentiment": {
+                "type": "object",
+                "description": "情感比例",
+                "fields": {
+                  "positive": {
+                    "type": "float",
+                    "description": "正面比例"
+                  },
+                  "neutral": {
+                    "type": "float",
+                    "description": "中性比例"
+                  },
+                  "negative": {
+                    "type": "float",
+                    "description": "负面比例"
+                  }
+                }
+              },
+              "keywords": {
+                "type": "array",
+                "description": "关键词列表，用于搜索匹配和标签展示"
+              }
+            }
+          ]
+        }
+      },
+      "data_source": {
+        "A": [
+          "title",
+          "publish_time",
+          "source_platform"
+        ],
+        "B": [
+          "heat",
+          "sentiment",
+          "keywords",
+          "stage",
+          "report_count"
+        ],
+        "C": [
+          "database_query",
+          "pagination",
+          "sorting"
+        ]
+      }
+    },
+    {
+      "name": "事件详情",
+      "method": "GET",
+      "path": "/api/events/{event_id}",
+      "description": "获取指定事件的详细分析报告主体数据。",
+      "request": {
+        "headers": {
+          "Authorization": {
+            "type": "string",
+            "example": "Bearer jwt_xxx"
+          }
+        },
+        "path": {
+          "event_id": {
+            "type": "integer",
+            "required": true,
+            "description": "事件唯一ID"
+          }
+        }
+      },
+      "response": {
+        "code": 200,
+        "message": "success",
+        "data": {
+          "event_id": {
+            "type": "integer",
+            "description": "事件唯一ID"
+          },
+          "title": {
+            "type": "string",
+            "description": "事件标题"
+          },
+          "category": {
+            "type": "string",
+            "description": "事件分类（来源待确认：需与算法模块确认）"
+          },
+          "event_time": {
+            "type": "string",
+            "description": "事件发生或聚合时间"
+          },
+          "location": {
+            "type": "string",
+            "description": "事件地点（来源待确认）"
+          },
+          "summary": {
+            "type": "string",
+            "description": "事件概览"
+          },
+          "cause": {
+            "type": "string",
+            "description": "事件直接起因（来源待确认：后续可由大模型生成）"
+          },
+          "people": {
+            "type": "string",
+            "description": "涉事主体（来源待确认：后续可由算法模块提取）"
+          },
+          "heat": {
+            "type": "float",
+            "description": "热度指数"
+          },
+          "report_count": {
+            "type": "integer",
+            "description": "去重后有效报道数"
+          },
+          "time_start": {
+            "type": "string",
+            "description": "最早报道时间"
+          },
+          "time_end": {
+            "type": "string",
+            "description": "最晚报道时间"
+          },
+          "risk_level": {
+            "type": "string",
+            "description": "风险等级（来源待确认），枚举：high/mid_high/mid/low"
+          },
+          "stage": {
+            "type": "string",
+            "description": "生命周期阶段，枚举：latent/growth/peak/decline"
+          },
+          "sentiment": {
+            "type": "object",
+            "description": "情感比例",
+            "fields": {
+              "positive": {
+                "type": "float",
+                "description": "正面比例"
+              },
+              "neutral": {
+                "type": "float",
+                "description": "中性比例"
+              },
+              "negative": {
+                "type": "float",
+                "description": "负面比例"
+              }
+            }
+          },
+          "keywords": {
+            "type": "array",
+            "description": "高频关键词，每题项含 word 和 weight",
+            "items": {
+              "word": {
+                "type": "string",
+                "description": "关键词"
+              },
+              "weight": {
+                "type": "float",
+                "description": "权重"
+              }
+            }
+          },
+          "platform_distribution": {
+            "type": "array",
+            "description": "平台分布",
+            "items": {
+              "platform_name": {
+                "type": "string",
+                "description": "平台名称"
+              },
+              "ratio": {
+                "type": "float",
+                "description": "占比"
+              }
+            }
+          },
+          "lifecycle": {
+            "type": "object",
+            "description": "生命周期预测（格式与 lifecycle 接口一致）",
+            "fields": {
+              "stage": {
+                "type": "string",
+                "description": "阶段"
+              },
+              "confidence": {
+                "type": "float",
+                "description": "置信度"
+              },
+              "stage_probability": {
+                "type": "object",
+                "description": "各阶段概率",
+                "fields": {
+                  "latent": {
+                    "type": "float"
+                  },
+                  "growth": {
+                    "type": "float"
+                  },
+                  "peak": {
+                    "type": "float"
+                  },
+                  "decline": {
+                    "type": "float"
+                  }
+                }
+              },
+              "future_trend": {
+                "type": "array",
+                "description": "未来趋势预测"
+              },
+              "analysis": {
+                "type": "string",
+                "description": "阶段说明"
+              }
+            }
+          },
+          "advice": {
+            "type": "string",
+            "description": "处置建议（来源待确认：后续由大模型或规则引擎生成）"
+          },
+          "qa_seed": {
+            "type": "string",
+            "description": "问答兜底上下文（来源待确认）"
+          },
+          "authenticity": {
+            "type": "object",
+            "description": "真实性分析（来源待确认：后续由算法模块补充）",
+            "fields": {
+              "false_confidence": {
+                "type": "float",
+                "description": "真实性置信度"
+              },
+              "duplicate_rate": {
+                "type": "float",
+                "description": "重复率"
+              },
+              "credibility_factors": {
+                "type": "array",
+                "description": "真实性因子"
+              },
+              "checks": {
+                "type": "array",
+                "description": "真实性检查"
+              }
+            }
+          },
+          "traceability": {
+            "type": "object",
+            "description": "事件溯源图（来源待确认：后续由算法模块补充）",
+            "fields": {
+              "nodes": {
+                "type": "array",
+                "description": "溯源节点"
+              },
+              "links": {
+                "type": "array",
+                "description": "溯源连接"
+              }
+            }
+          },
+          "geo_discussion": {
+            "type": "array",
+            "description": "地域讨论热力（来源待确认：后续由算法模块补充）"
+          },
+          "similar_events": {
+            "type": "array",
+            "description": "历史相似事件（来源待确认：后续由算法模块补充）"
+          }
+        }
+      },
+      "data_source": {
+        "A": [
+          "title",
+          "publish_time",
+          "source_platform"
+        ],
+        "B": [
+          "heat",
+          "sentiment",
+          "keywords",
+          "stage",
+          "platform_distribution"
+        ],
+        "C": [
+          "database_query",
+          "data_integration"
         ]
       }
     }
