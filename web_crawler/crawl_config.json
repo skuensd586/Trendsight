@@ -1,28 +1,29 @@
 {
   "crawler": {
-    "sina": {
-      "enabled": true,
-      "keywords": [
-        "广西洪灾",
-        "广西暴雨",
-        "六蓝水库决堤",
-        "广西台风"
-      ],
-      "max_articles_per_keyword": 30,
-      "request_interval": 1.5
-    },
     "weibo": {
       "enabled": true,
       "keywords": [
         "广西洪灾",
         "广西暴雨",
         "六蓝水库决堤",
-        "广西台风"
+        "横州",
+        "广西辟谣"
       ],
-      "max_articles_per_keyword": 20,
+      "max_articles_per_keyword": 30,
       "max_comments_per_article": 25,
-      "request_interval": 1.5,
-      "weibo_cookie": "YOUR_WEIBO_COOKIE_HERE"
+      "request_interval": 1.5
+    },
+    "sina": {
+      "enabled": true,
+      "keywords": [
+        "广西洪灾",
+        "广西暴雨",
+        "六蓝水库决堤",
+        "横州",
+        "广西辟谣"
+      ],
+      "max_articles_per_keyword": 40,
+      "request_interval": 1.5
     }
   },
   "scheduler": {

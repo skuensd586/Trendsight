@@ -6,3 +6,4 @@ readability-lxml>=0.8
 requests>=2.31
 simhash>=2.1
 SQLAlchemy>=1.4
+lxml_html_clean

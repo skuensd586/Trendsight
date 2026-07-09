@@ -1,4 +1,4 @@
- # 爬虫 + 数据清洗数据接口说明
+﻿ # 爬虫 + 数据清洗数据接口说明
  
  ## 模块作用
  
@@ -43,11 +43,17 @@
  
  pipeline/
  ├── __init__.py
- ├── extractor.py        # 抽取策略族
+ ├── extractor.py        # 正文抽取
  │   ├── NewspaperExtractor    # type="news"   → newspaper3k，适用于新闻网站
  │   ├── ReadabilityExtractor  # type="social" → readability-lxml，适用于社交页面
  │   └── WeiboExtractor        # type="weibo"  → weibo.com/ajax/statuses/show API
- └── cleaner.py          # 噪音过滤 + 标准文档构建
+ └── cleaner.py          # 手写去噪脚本 + 标准文档构建
+ 
+ utils/                  #一些用于反爬的策略
+ ├── __init__.py
+ ├── config.py           # 配置加载与校验（load_config / validate_config）
+ ├── logger.py           # 统一日志配置（RotatingFileHandler + 控制台）
+ └── retry.py            # 网络请求重试装饰器（指数退避 + 抖动）
  
  storage.py              # 数据库引擎、两阶段去重、文档/评论入库
  orchestrator.py         # 统一编排入口
@@ -68,7 +74,7 @@
  
  | 字段 | 类型 | 约束 | 说明 | 写入方  |
  |------|------|------|------|--------|
- | doc_id | VARCHAR(64) | PK | UUID v4 主键（uuid.uuid4() 生成） | **A**  |
+ | doc_id | VARCHAR(64) | PK | 确定性主键：`{平台码}{发布时间YYYYMMDDHHmmss}{url_md5[:8]}`，如 `WB20260709143025a1b2c3d4` | **A**  |
  | source_platform | VARCHAR(20) | NOT NULL | 来源平台 display_name（如"新浪新闻"） | **A**  |
  | source_url | VARCHAR(500) | DEFAULT NULL | 原文 URL（URL 精确去重依据） | **A**  |
  | title | VARCHAR(500) | DEFAULT NULL | 文章标题（微博取正文前 50 字） | **A**  |
@@ -95,7 +101,7 @@
  
  | 字段 | 类型 | 约束 | 说明 | 写入方 |
  |------|------|------|------|--------|
- | comment_id | VARCHAR(64) | PK | UUID v4 主键 | **A**|
+ | comment_id | VARCHAR(64) | PK | 微博接口返回的评论 ID 字符串 | **A** |
  | source_platform | VARCHAR(20) | NOT NULL | 来源平台 display_name | **A**  |
  | parent_post_id | VARCHAR(64) | NOT NULL, FK→raw_documents.doc_id | **所属帖子的 doc_id**（关键关联字段） | **A** |
  | source_url | VARCHAR(500) | DEFAULT NULL | 评论页面 URL（去重依据） | **A** |
@@ -136,7 +142,7 @@
  
  ## 配置方式
  
- ### 数据库+cookie连接
+ ### 数据库+微博连接
  通过 `.env` 文件管理（已加入 `.gitignore`）：
  ```
  DB_USER=root
@@ -145,7 +151,11 @@
  DB_PORT=3306
  DB_DATABASE=public_opinion_system
 
+ SINA_COOKIE=your_sina_cookie_here
  WEIBO_COOKIE=your_weibo_cookie_here
+
+ # 多账号轮换（可选）
+ # WEIBO_COOKIE_2=your_second_weibo_cookie_here
  ```
  
  ### crawl_config.json 结构
@@ -163,8 +173,7 @@
        "keywords": ["广西洪灾", "广西暴雨"],
        "max_articles_per_keyword": 20,
        "max_comments_per_article": 25,
-       "request_interval": 1.5,
-       "weibo_cookie": "YOUR_WEIBO_COOKIE_HERE"    // 有有效期，需定期更新
+       "request_interval": 1.5
      }
    },
    "scheduler": {
@@ -176,7 +185,7 @@
  
  ## 启动方式
  ```bash
- pip install -r docs\requirements.txt
+ pip install -r requirements.txt
  cp .env.example .env
  mysql -u root -p public_opinion_system < docs/init.sql
  python orchestrator.py "关键词" --platform sina --dry-run
@@ -185,4 +194,3 @@
  python scheduler.py
  python scheduler.py --run-once
  ```
- 
