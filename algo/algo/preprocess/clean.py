@@ -9,8 +9,14 @@ sources that don't clean as thoroughly, not B's primary cleaning duty.
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
+
+# Excel stores dates as days since 1899-12-30.  Serials for plausible crawl dates
+# fall in roughly 40000-60000, well below any real Unix timestamp (>1e9), so the
+# two formats are unambiguous.
+_EXCEL_EPOCH = datetime(1899, 12, 30)
+_EXCEL_SERIAL_MAX = 99_999
 
 from ..schema import Document
 from .text_type import resolve_text_type
@@ -29,6 +35,8 @@ def parse_publish_time(value: Any) -> datetime:
     if isinstance(value, datetime):
         return value
     if isinstance(value, (int, float)):
+        if value <= _EXCEL_SERIAL_MAX:
+            return _EXCEL_EPOCH + timedelta(days=float(value))
         return datetime.fromtimestamp(value)
     for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
         try:
