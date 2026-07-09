@@ -1,5 +1,5 @@
-﻿from models import Base
-from models.user import User, UserPreference
+# 导入所有模型确保表注册
+from models import Base, User, UserPreference, Event, EventTrendDaily, EventKeyword, EventPlatform, Conversation, Message
 from dependencies import engine
 
 

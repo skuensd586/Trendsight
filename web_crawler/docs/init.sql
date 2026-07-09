@@ -1,4 +1,4 @@
--- ============================================================
+﻿-- ============================================================
 -- 舆情分析系统数据库初始化
 -- 用法:
 --   mysql -u root -p public_opinion_system < docs/init.sql
@@ -6,7 +6,7 @@
 
 -- 1. 多平台新闻/帖子原始数据表
 CREATE TABLE IF NOT EXISTS raw_documents (
-    doc_id           VARCHAR(64)   NOT NULL PRIMARY KEY  COMMENT 'UUID 主键',
+    doc_id           VARCHAR(64)   NOT NULL PRIMARY KEY  COMMENT '确定性主键：{platform_code}{timestamp}{md5[:8]}',
     source_platform  VARCHAR(20)   NOT NULL              COMMENT '来源平台（如"新浪新闻"、"微博"）',
     source_url       VARCHAR(500)  DEFAULT NULL          COMMENT '原文 URL（去重依据）',
     title            VARCHAR(500)  DEFAULT NULL          COMMENT '文章标题',
@@ -81,7 +81,7 @@ CREATE TABLE IF NOT EXISTS user_preferences (
 
 -- 5. 社交平台评论原始数据表
 CREATE TABLE IF NOT EXISTS raw_comments (
-    comment_id       VARCHAR(64)   NOT NULL PRIMARY KEY COMMENT 'UUID 主键',
+    comment_id       VARCHAR(64)   NOT NULL PRIMARY KEY COMMENT '微博接口返回的评论 ID 字符串',
     source_platform  VARCHAR(20)   NOT NULL             COMMENT '来源平台',
     parent_post_id   VARCHAR(64)   NOT NULL             COMMENT '所属帖子的 doc_id（FK→raw_documents.doc_id）',
     source_url       VARCHAR(500)  DEFAULT NULL         COMMENT '评论页面 URL（去重依据）',
@@ -104,3 +104,5 @@ CREATE TABLE IF NOT EXISTS raw_comments (
     INDEX idx_publish_time (publish_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='社交平台评论原始数据';
+
+

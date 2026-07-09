@@ -10,8 +10,8 @@
   - 组装标准化文档字典（含 SimHash 指纹）
 """
 import html
+import hashlib
 import re
-import uuid
 from datetime import datetime
 from simhash import Simhash
 BOILERPLATE_PATTERNS: dict[str, list[str]] = {
@@ -35,7 +35,7 @@ def clean_content(text: str, platform: str = "新浪新闻") -> str:
     text = _EXCESS_NEWLINES.sub('\n\n', text)
     lines = [line.strip() for line in text.split('\n')]
     return '\n'.join(lines).strip()
-def build_document(raw: dict, candidate: dict, platform: str = "新浪新闻") -> dict:
+def build_document(raw: dict, candidate: dict, platform: str = "新浪新闻", platform_code: str = "XX") -> dict:
     """
     组装标准文档字典。
     raw — extractor.extract() 输出
@@ -51,8 +51,10 @@ def build_document(raw: dict, candidate: dict, platform: str = "新浪新闻") -
         or candidate.get("media_show")
         or None
     )
+    url_hash = hashlib.md5(candidate["url"].encode()).hexdigest()[:8]
+    ts = publish_time.strftime("%Y%m%d%H%M%S")
     return {
-        "doc_id": str(uuid.uuid4()),
+        "doc_id": f"{platform_code}{ts}{url_hash}",
         "source_platform": platform,
         "source_url": candidate["url"],
         "title": raw["title"] or candidate.get("title"),

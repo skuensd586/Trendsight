@@ -10,6 +10,7 @@ sina_search_result.html
 
 # 临时运行产物
 events.json
+logs/
 
 # 敏感配置（密码、密钥等）
 .env
