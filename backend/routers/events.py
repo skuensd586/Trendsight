@@ -1,0 +1,121 @@
+﻿from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+from dependencies import get_db
+from utils.algo_client import call_algo
+from services.event_service import save_event, get_events, get_event_detail
+
+
+class AnalyzeRequest(BaseModel):
+    documents: list[dict]
+    comments: list[dict] = []
+    sentiment_method: str = "bert"
+
+class AnalyzeResponseData(BaseModel):
+    count: int
+    event_ids: list[int]
+
+class AnalyzeResponse(BaseModel):
+    code: int = 200
+    message: str = "success"
+    data: AnalyzeResponseData
+
+
+class EventListItem(BaseModel):
+    event_id: int
+    title: str
+    heat: float | None = None
+    report_count: int | None = None
+    risk_level: str | None = None
+    stage: str | None = None
+    event_time: str | None = None
+    created_at: str | None = None
+
+class PaginationData(BaseModel):
+    page: int
+    page_size: int
+    total: int
+    total_pages: int
+
+class EventListData(BaseModel):
+    items: list[EventListItem]
+    pagination: PaginationData
+
+class EventListResponse(BaseModel):
+    code: int = 200
+    message: str = "success"
+    data: EventListData
+
+
+class EventDetailResponse(BaseModel):
+    code: int = 200
+    message: str = "success"
+    data: dict | None = None
+
+
+router = APIRouter()
+
+
+@router.post("/api/events/analyze", response_model=AnalyzeResponse)
+def analyze_events(
+    request: AnalyzeRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        results = call_algo(
+            documents=request.documents,
+            comments=request.comments,
+            sentiment_method=request.sentiment_method,
+        )
+    except RuntimeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(e),
+        )
+
+    event_ids = []
+    for report in results:
+        event = save_event(db, report)
+        event_ids.append(event.event_id)
+
+    return AnalyzeResponse(
+        data=AnalyzeResponseData(
+            count=len(event_ids),
+            event_ids=event_ids,
+        )
+    )
+
+
+@router.get("/api/events", response_model=EventListResponse)
+def list_events(
+    page: int = 1,
+    size: int = 20,
+    db: Session = Depends(get_db),
+):
+    data = get_events(db, page=page, size=size)
+    return EventListResponse(data=EventListData(**data))
+
+
+@router.get("/api/events/hot", response_model=EventListResponse)
+def hot_events(
+    page: int = 1,
+    size: int = 20,
+    db: Session = Depends(get_db),
+):
+    data = get_events(db, page=page, size=size)
+    return EventListResponse(data=EventListData(**data))
+
+
+@router.get("/api/events/{event_id}", response_model=EventDetailResponse)
+def event_detail(
+    event_id: int,
+    db: Session = Depends(get_db),
+):
+    data = get_event_detail(db, event_id)
+    if data is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="\u4e8b\u4ef6\u4e0d\u5b58\u5728",
+        )
+    return EventDetailResponse(data=data)

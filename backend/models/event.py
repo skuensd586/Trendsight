@@ -30,6 +30,8 @@ class Event(Base):
     sources = Column(JSON, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.now)
     updated_at = Column(DateTime, nullable=False, default=datetime.now, onupdate=datetime.now)
+    risk_level = Column(String(20), nullable=True)
+    event_time = Column(DateTime, nullable=True)
 
     trend_daily = relationship("EventTrendDaily", back_populates="event", cascade="all, delete-orphan")
     keywords = relationship("EventKeyword", back_populates="event", cascade="all, delete-orphan")
@@ -39,6 +41,7 @@ class Event(Base):
         Index("idx_events_heat", "heat"),
         Index("idx_events_time_start", "time_start"),
         Index("idx_events_stage", "stage"),
+        Index("idx_events_risk_level", "risk_level"),
     )
 
 

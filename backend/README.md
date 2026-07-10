@@ -219,6 +219,53 @@ python create_test_user.py
 
 > 未来业务接口会根据 A/B 模块开发情况调整，最终接口定义以 pi-design/ 中的接口契约为准。
 
+
+### 事件分析模块
+
+#### POST /api/events/analyze
+
+- **用途**：接收原始文档，调用算法分析服务（B模块）后写入数据库
+- **请求体**：
+  - documents（必填）：原始新闻文档列表
+  - comments（可选）：评论列表
+  - sentiment_method（可选）：情感分析方法，默认 bert
+- **返回**：count（创建数量）、event_ids（事件ID列表）
+
+流程说明：
+
+1. 接收前端传入的原始文档列表
+2. 转发到 Algo 算法服务进行 NLP 分析（聚类、情感、关键词、生命周期）
+3. 将分析结果持久化到 events 及相关子表（keywords、platforms、trend）
+
+#### GET /api/events
+
+- **用途**：获取事件列表（分页）
+- **参数**：page（可选，默认1）、size（可选，默认20）
+- **返回**：items[]（事件摘要列表）、total（总记录数）
+
+每题项包含 event_id、title、heat、report_count、risk_level、stage、event_time、created_at，按热度降序排列。
+
+#### GET /api/events/{event_id}
+
+- **用途**：获取单个事件完整详情
+- **返回**：事件基础信息、情感分布（sentiment）、生命周期概率（stage_probability）、关键词（keywords）、平台分布（platform_distribution）、趋势数据（trend / future_trend）
+
+#### 事件相关接口总览
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| POST | /api/events/analyze | 分析文档并创建事件 |
+| GET | /api/events | 事件列表（分页） |
+| GET | /api/events/{event_id} | 事件详情 |
+| GET | /api/events/{event_id}/trend | 趋势数据 |
+| GET | /api/events/{event_id}/sentiment | 情感分布 |
+| GET | /api/events/{event_id}/platform | 平台分布 |
+| GET | /api/events/{event_id}/keywords | 关键词分析 |
+| GET | /api/events/{event_id}/lifecycle | 生命周期预测 |
+
+> 子维度接口定义见 api-design/events.json 和 api-design/prediction.json。
+
+
 ## 8. 前后端联调说明
 
 ### 登录流程

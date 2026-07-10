@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routers import auth, user, qa
+from routers import auth, user, qa, events
 
 app = FastAPI(title="Trendsight API", version="0.1.0")
 
@@ -16,6 +16,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(user.router)
 app.include_router(qa.router)
+app.include_router(events.router)
 
 
 if __name__ == "__main__":

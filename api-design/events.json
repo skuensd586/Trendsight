@@ -708,6 +708,59 @@
           "data_integration"
         ]
       }
+    },
+    {
+      "name": "分析事件",
+      "method": "POST",
+      "path": "/api/events/analyze",
+      "description": "接收原始文档列表，调用算法分析服务（B模块）进行NLP处理（聚类、情感、关键词、生命周期预测等），并将分析结果持久化到数据库。",
+      "request": {
+        "body": {
+          "documents": {
+            "type": "array",
+            "required": true,
+            "description": "原始新闻文档列表，每题项包含 doc_id/title/content/publish_time/source/platform/url"
+          },
+          "comments": {
+            "type": "array",
+            "required": false,
+            "description": "评论列表（可选）"
+          },
+          "sentiment_method": {
+            "type": "string",
+            "required": false,
+            "description": "情感分析方法，默认 bert"
+          }
+        }
+      },
+      "response": {
+        "code": 200,
+        "message": "success",
+        "data": {
+          "count": {
+            "type": "integer",
+            "description": "创建的事件数量"
+          },
+          "event_ids": {
+            "type": "array",
+            "description": "创建的事件ID列表",
+            "items": {
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "data_source": {
+        "A": [
+          "documents"
+        ],
+        "B": [
+          "algo_analysis_result"
+        ],
+        "C": [
+          "database_persistence"
+        ]
+      }
     }
   ]
 }
