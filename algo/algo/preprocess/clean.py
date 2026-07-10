@@ -58,6 +58,14 @@ def normalize_document(raw: dict[str, Any]) -> Document:
     platform = raw.get("source_platform") or raw.get("platform", "")
     url = raw.get("source_url") or raw.get("url", "")
     source = raw.get("source") or platform
+
+    # verification_type comes from the crawler; news platforms (新浪新闻) don't carry
+    # per-account verification, so treat the platform itself as the credible source.
+    _NEWS_PLATFORMS = {"新浪新闻", "新华社", "人民日报", "光明网", "人民网"}
+    verification_type = raw.get("verification_type") or (
+        "官方平台" if platform in _NEWS_PLATFORMS else None
+    )
+
     return Document(
         doc_id=str(raw["doc_id"]),
         title=strip_boilerplate(raw.get("title", "")),
@@ -68,4 +76,5 @@ def normalize_document(raw: dict[str, Any]) -> Document:
         url=url,
         author=raw.get("author", ""),
         text_type=resolve_text_type(platform),
+        verification_type=verification_type,
     )

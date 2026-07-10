@@ -15,6 +15,7 @@ from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from typing import Any
 
+from .authenticity import compute_authenticity
 from .cluster import compute_hotness, single_pass_cluster
 from .nlp import extract_keywords, tokenize
 from .preprocess import is_near_duplicate, normalize_document, simhash
@@ -165,6 +166,7 @@ def analyze_event(
     time_start = min(publish_times).isoformat() if docs else None
     time_end = max(publish_times).isoformat() if docs else None
     heat = round(compute_hotness(publish_times, now=now), 3)
+    dup_rate = duplicate_count / max(len(docs) + duplicate_count, 1)
 
     report: dict[str, Any] = {
         "event_id": raws[0]["event_id"] if raws else None,
@@ -179,6 +181,7 @@ def analyze_event(
         "sources": sorted({doc.source for doc in docs}),
         "time_start": time_start,
         "time_end": time_end,
+        "authenticity": compute_authenticity(docs, duplicate_rate=dup_rate),
     }
     if docs:
         daily_trend = daily_report_counts(publish_times)

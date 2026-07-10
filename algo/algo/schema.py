@@ -26,3 +26,7 @@ class Document:
     # "comment" or "article" if the platform is known, else "auto" as a degraded fallback.
     # Downstream sentiment code should read this rather than re-deriving text_type itself.
     text_type: str = "auto"
+    # Source credibility tier, populated from the crawler's verification_type field.
+    # Values: 官方平台 / 认证机构 / 头部认证个人 / 认证个人 / 普通用户 / None
+    # None means the crawler didn't supply this field (treated as 普通用户 in authenticity scoring).
+    verification_type: str | None = None
