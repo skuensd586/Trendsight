@@ -44,7 +44,7 @@ from algo.pipeline import analyze_event
 from algo.preprocess import normalize_document
 from algo.sentiment import classify_sentiment, predict_bert_sentiment, predict_sentiment
 
-SENTIMENT_METHODS = ("ml", "dict", "bert")
+SENTIMENT_METHODS = ("auto", "ml", "dict", "bert")
 
 
 # ── data loading ──────────────────────────────────────────────────────────────
@@ -66,20 +66,25 @@ def _read_xls(path: Path) -> list[dict]:
 
 # ── comment sentiment ─────────────────────────────────────────────────────────
 
-def _sentiment_from_comments(comment_docs, method: str = "ml") -> dict[str, float]:
+def _sentiment_from_comments(comment_docs, method: str = "auto") -> dict[str, float]:
     """Sentiment distribution computed from comment documents.
 
-    method: "ml"   — TF-IDF + LogisticRegression (trained on hotel reviews)
-            "dict" — lexicon-based (no model needed)
+    method: "auto" — comment→bert, article→dict（按 text_type 自动路由）
             "bert" — pretrained RoBERTa (uer/roberta-base-finetuned-jd-binary-chinese)
+            "dict" — lexicon-based (no model needed)
+            "ml"   — TF-IDF + LogisticRegression (trained on hotel reviews)
     """
     counts = {"positive": 0, "negative": 0, "neutral": 0}
     _ml_available = True
     for doc in comment_docs:
         text = doc.title + " " + doc.content
-        if method == "bert":
+        effective = method
+        if method == "auto":
+            effective = "bert" if doc.text_type == "comment" else "dict"
+
+        if effective == "bert":
             label = predict_bert_sentiment(text)
-        elif method == "dict":
+        elif effective == "dict":
             label, _ = classify_sentiment(tokenize(text))
         else:  # ml with fallback
             if _ml_available:
@@ -193,9 +198,9 @@ def main() -> None:
     parser.add_argument("--dedup-threshold", type=int, default=3)
     parser.add_argument("--top", type=int, default=20, help="print only the top N clusters")
     parser.add_argument("--topic", type=str, default=None, help="space-separated topic keywords for relevance filtering")
-    parser.add_argument("--relevance-threshold", type=float, default=0.02, help="min centroid-topic similarity to keep a cluster (default 0.02)")
-    parser.add_argument("--sentiment-method", choices=SENTIMENT_METHODS, default="ml",
-                        help="sentiment backend: ml (TF-IDF+LR), dict (lexicon), bert (RoBERTa)")
+    parser.add_argument("--relevance-threshold", type=float, default=0.035, help="min centroid-topic similarity to keep a cluster (default 0.035)")
+    parser.add_argument("--sentiment-method", choices=SENTIMENT_METHODS, default="auto",
+                        help="sentiment backend: auto (comment→bert, article→dict), bert, ml, dict")
     parser.add_argument("--compare", action="store_true",
                         help="run dict AND bert and print a side-by-side comparison (ignores --sentiment-method)")
     args = parser.parse_args()

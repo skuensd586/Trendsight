@@ -68,15 +68,18 @@ def _keywords(corpus_tokens: list[list[str]], top_k: int) -> list[dict[str, Any]
 def _sentiment_distribution(docs: list[Document], corpus_tokens: list[list[str]]) -> dict[str, float]:
     """Classify each document's sentiment and return the positive/neutral/negative ratio.
 
-    Prefers the ML model (predict_sentiment), routing each document through its text_type
-    so comment and article models are used independently.  Falls back to the lexicon-based
-    classifier for the entire batch if no trained model file is found — this keeps the
-    pipeline functional before `scripts/train_sentiment_model.py` has been run.
+    Routing strategy by text_type:
+      article — lexicon (dict): news articles are formal/neutral; the comment-trained
+                ML model is systematically biased toward "positive" on formal prose.
+      comment — ML model with fallback to dict: colloquial text matches the training
+                domain better; if no model file exists, dict is the safe default.
     """
     counts = {"positive": 0, "negative": 0, "neutral": 0}
     use_ml = True
     for doc, tokens in zip(docs, corpus_tokens):
-        if use_ml:
+        if doc.text_type == "article":
+            label, _ = classify_sentiment(tokens)
+        elif use_ml:
             try:
                 label = predict_sentiment(doc.title + " " + doc.content, doc.text_type)
             except FileNotFoundError:

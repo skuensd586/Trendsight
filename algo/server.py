@@ -57,7 +57,7 @@ app = FastAPI(
 class AnalyzeRequest(BaseModel):
     documents: list[dict[str, Any]]
     comments: list[dict[str, Any]] = []
-    sentiment_method: Literal["bert", "ml", "dict"] = "bert"
+    sentiment_method: Literal["auto", "bert", "ml", "dict"] = "auto"
 
     @field_validator("documents")
     @classmethod
@@ -81,18 +81,27 @@ def _run_pipeline_simple(tagged_records: list[dict]) -> list[dict]:
 
 
 def _sentiment_labels(docs, method: str) -> list[str]:
-    """对一批 Document 对象逐条打情感标签。"""
+    """对一批 Document 对象逐条打情感标签。
+
+    method="auto" 按 text_type 自动路由：
+      comment → bert（口语化评论，情感强，BERT 更合适）
+      article → dict（书面化新闻，comment 训练的模型对正式文体有正面偏差）
+    """
     labels: list[str] = []
     _ml_ok = True
     for doc in docs:
         text = doc.title + " " + doc.content
-        if method == "bert":
+        effective = method
+        if method == "auto":
+            effective = "bert" if doc.text_type == "comment" else "dict"
+
+        if effective == "bert":
             try:
                 from algo.sentiment.bert_sentiment import predict_bert_sentiment
                 label = predict_bert_sentiment(text)
             except (ImportError, FileNotFoundError):
                 label, _ = classify_sentiment(tokenize(text))
-        elif method == "dict":
+        elif effective == "dict":
             label, _ = classify_sentiment(tokenize(text))
         else:  # ml，无模型时降级到词典法
             if _ml_ok:
