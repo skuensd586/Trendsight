@@ -23,16 +23,29 @@ def _fallback_tokenize(text: str) -> list[str]:
     return _TOKEN_RE.findall(text)
 
 
+_PURE_DIGIT_RE = re.compile(r"^\d+$")
+_SINGLE_CJK_RE = re.compile(r"^[一-鿿]$")
+
+
 def tokenize(text: str, remove_stopwords: bool = True) -> list[str]:
-    """Split `text` into tokens, dropping punctuation/whitespace and (by default) stopwords."""
+    """Split `text` into tokens, dropping punctuation/whitespace and (by default) stopwords.
+
+    Filtering order:
+      1. Tokenize (jieba) or fallback per-character split
+      2. Drop tokens with no letter/digit/CJK content
+      3. Drop pure-digit tokens (e.g. "8", "2026")
+      4. Drop single-character CJK tokens — always noise after jieba; the entire
+         output is single-chars when jieba is absent, which is already unusable
+      5. Drop stopwords
+    """
     if _HAS_JIEBA:
         tokens = [t.strip() for t in jieba.cut(text) if t.strip()]
     else:
         tokens = _fallback_tokenize(text)
 
-    # jieba passes punctuation through as its own tokens; drop anything with no
-    # actual letter/digit/CJK content (commas, quotes, whitespace-only pieces).
     tokens = [t for t in tokens if _HAS_WORD_CHAR_RE.search(t)]
+    tokens = [t for t in tokens if not _PURE_DIGIT_RE.match(t)]
+    tokens = [t for t in tokens if not _SINGLE_CJK_RE.match(t)]
 
     if remove_stopwords:
         tokens = [t for t in tokens if t not in STOPWORDS]
