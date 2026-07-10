@@ -55,7 +55,7 @@ def retry_with_backoff(max_attempts: int = 3,
     base_delay     — 首次重试等待秒数，之后每次翻倍
     max_delay      — 单次等待上限，避免退避到几分钟
     retry_on       — 触发重试的异常类型元组
-    only_retryable — True 时只对“值得重试”的异常（超时/连接错误/429/5xx）重试，
+    only_retryable — True 时只对"值得重试"的异常（超时/连接错误/429/5xx）重试，
                      其它异常直接抛出；False 时对 retry_on 内所有异常都重试
     """
     def decorator(func):
@@ -72,7 +72,7 @@ def retry_with_backoff(max_attempts: int = 3,
                     if attempt == max_attempts:
                         break
                     delay = min(max_delay, base_delay * (2 ** (attempt - 1)))
-                    delay += random.uniform(0, delay * 0.3)
+                    delay += random.uniform(0, delay * 0.3)  # 抖动，防止重试风暴
                     log.warning(
                         "%s 第 %d/%d 次失败: %s，%.1fs 后重试",
                         func.__name__, attempt, max_attempts, e, delay,
@@ -84,17 +84,37 @@ def retry_with_backoff(max_attempts: int = 3,
     return decorator
 
 
-def request_with_retry(method, *args, max_attempts=3, base_delay=2.0, max_delay=30.0, **kwargs):
-    """发送 HTTP 请求，遇到限流/超时/5xx 时自动重试。
+def request_with_retry(fn, *args, max_attempts: int = 3,
+                       base_delay: float = 2.0,
+                       max_delay: float = 30.0, **kwargs):
+    """Call fn(*args, **kwargs) with exponential-backoff retry.
 
-    用法::
+    Retries on timeouts, connection errors, and HTTP 429/5xx status codes.
+    Returns the result of the first successful call, or raises the last exception
+    if all attempts fail — same retry policy as L{retry_with_backoff}.
+
+    Usage:
         resp = request_with_retry(session.get, url, params=params, timeout=15)
-        resp.raise_for_status()
-        return resp.json()
+        resp = request_with_retry(session.post, url, json=payload, timeout=10)
     """
-    @retry_with_backoff(max_attempts=max_attempts, base_delay=base_delay, max_delay=max_delay)
-    def _do():
-        resp = method(*args, **kwargs)
-        resp.raise_for_status()
-        return resp
-    return _do()
+    last_exc = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            last_exc = e
+            if not _is_retryable_exception(e):
+                raise
+            if attempt == max_attempts:
+                break
+            delay = min(max_delay, base_delay * (2 ** (attempt - 1)))
+            delay += random.uniform(0, delay * 0.3)
+            log.warning(
+                "%s attempt %d/%d failed: %s, retry in %.1fs",
+                getattr(fn, "__name__", str(fn)),
+                attempt, max_attempts, e, delay,
+            )
+            time.sleep(delay)
+    log.error("%s failed after %d attempts: %s",
+              getattr(fn, "__name__", str(fn)), max_attempts, last_exc)
+    raise last_exc

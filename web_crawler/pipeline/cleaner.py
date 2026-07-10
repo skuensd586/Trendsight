@@ -35,6 +35,39 @@ def clean_content(text: str, platform: str = "新浪新闻") -> str:
     text = _EXCESS_NEWLINES.sub('\n\n', text)
     lines = [line.strip() for line in text.split('\n')]
     return '\n'.join(lines).strip()
+def _parse_publish_time(value) -> datetime | None:
+    """Parse publish_time from various formats to a datetime object.
+
+    Supports:
+    - datetime object: returned as-is
+    - int or float: treated as Unix timestamp
+    - numeric str: treated as Unix timestamp after int conversion
+    - str like "20260710084820": parsed as YYYYmmddHHMMSS
+    - str like "2024-06-18 13:43:00": parsed as ISO format
+    - str like "2024-06-18 13:43": parsed as ISO format without seconds
+    - None / unparseable: returns None (caller falls through to datetime.now())
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(value)
+    s = str(value).strip()
+    if s.isdigit():
+        try:
+            return datetime.fromtimestamp(int(s))
+        except (OSError, ValueError, OverflowError):
+            pass
+    for fmt in ("%Y%m%d%H%M%S", "%Y-%m-%d %H:%M:%S",
+                "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(s, fmt)
+        except ValueError:
+            continue
+    return None
+
+
 def build_document(raw: dict, candidate: dict, platform: str = "新浪新闻", platform_code: str = "XX") -> dict:
     """
     组装标准文档字典。
@@ -43,7 +76,8 @@ def build_document(raw: dict, candidate: dict, platform: str = "新浪新闻", p
     """
     content = clean_content(raw["content"], platform=platform)
     if candidate.get("ctime"):
-        publish_time = datetime.fromtimestamp(candidate["ctime"])
+        parsed = _parse_publish_time(candidate["ctime"])
+        publish_time = parsed if parsed is not None else (raw.get("publish_date") or datetime.now())
     else:
         publish_time = raw.get("publish_date") or datetime.now()
     author = (
