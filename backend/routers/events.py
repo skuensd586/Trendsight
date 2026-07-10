@@ -1,4 +1,4 @@
-﻿from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -48,10 +48,66 @@ class EventListResponse(BaseModel):
     data: EventListData
 
 
+class EventSentiment(BaseModel):
+    positive: float
+    neutral: float
+    negative: float
+
+
+class EventStageProbability(BaseModel):
+    latent: float
+    growth: float
+    peak: float
+    decline: float
+
+
+class EventKeywordItem(BaseModel):
+    word: str
+    weight: float
+    rank: int
+
+
+class EventPlatformItem(BaseModel):
+    platform_name: str
+    ratio: float
+    rank: int
+
+
+class EventTrendDailyItem(BaseModel):
+    date: str | None = None
+    count: int
+    is_predicted: int = 0
+    predict_heat: float | None = None
+    predict_count: int | None = None
+
+
+class EventDetailData(BaseModel):
+    event_id: int
+    title: str
+    heat: float | None = None
+    report_count: int | None = None
+    risk_level: str | None = None
+    stage: str | None = None
+    confidence: float | None = None
+    analysis: str | None = None
+    event_time: str | None = None
+    created_at: str | None = None
+    sentiment: EventSentiment | None = None
+    stage_probability: EventStageProbability | None = None
+    sources: list[str] | None = None
+    time_start: str | None = None
+    time_end: str | None = None
+    keywords: list[EventKeywordItem] = []
+    platform_distribution: list[EventPlatformItem] = []
+    trend: list[dict] = []
+    future_trend: list[dict] = []
+    trend_daily: list[EventTrendDailyItem] = []
+
+
 class EventDetailResponse(BaseModel):
     code: int = 200
     message: str = "success"
-    data: dict | None = None
+    data: EventDetailData | None = None
 
 
 router = APIRouter()

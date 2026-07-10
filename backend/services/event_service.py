@@ -204,11 +204,11 @@ def get_event_detail(
         "time_end": event.time_end.isoformat() if event.time_end else None,
         "created_at": event.created_at.isoformat() if event.created_at else None,
         "keywords": [
-            {"word": kw.word, "weight": kw.weight}
+            {"word": kw.word, "weight": kw.weight, "rank": kw.rank}
             for kw in keywords
         ],
         "platform_distribution": [
-            {"platform_name": pf.platform_name, "ratio": pf.ratio}
+            {"platform_name": pf.platform_name, "ratio": pf.ratio, "rank": pf.rank}
             for pf in platforms
         ],
         "trend": [
@@ -222,5 +222,15 @@ def get_event_detail(
                 "predict_count": ft.predict_count,
             }
             for ft in future_trend
+        ],
+        "trend_daily": [
+            {
+                "date": t.date.isoformat() if t.date else None,
+                "count": t.count,
+                "is_predicted": t.is_predicted,
+                "predict_heat": t.predict_heat,
+                "predict_count": t.predict_count,
+            }
+            for t in trend + future_trend
         ],
     }
