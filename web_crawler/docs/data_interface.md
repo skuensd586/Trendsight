@@ -1,4 +1,4 @@
-﻿ # 爬虫 + 数据清洗数据接口说明
+ # 爬虫 + 数据清洗数据接口说明
  
  ## 模块作用
  
@@ -39,6 +39,7 @@
  crawlers/
  ├── __init__.py         # 注册表: register() / get_crawler() / list_platforms()
  ├── sina.py             # @register("sina"): 新浪新闻搜索（通用新闻搜索引擎）
+ ├── zhihu.py            # @register("zhihu"): 知乎搜索 + 评论拉取（社交平台）
  └── weibo.py            # @register("weibo"): 微博搜索 + 评论拉取（社交平台）
  
  pipeline/
@@ -67,6 +68,7 @@
  |------|--------|--------|---------|
  | 新浪新闻 | `sina` | SinaCrawler | `news` (NewspaperExtractor) |
  | 微博 | `weibo` | WeiboCrawler | `weibo` (WeiboExtractor) |
+ | 知乎 | `zhihu` | ZhihuCrawler | `zhihu` (ZhihuExtractor) |
  
  ## 数据库表设计 — 模块产出
  
@@ -83,6 +85,7 @@
  | publish_time | DATETIME | DEFAULT NULL | 发布时间（ctime → publish_date → 当前时间 三级兜底） | **A**  |
  | crawl_time | DATETIME | NOT NULL | 爬虫抓取时间 | **A** |
  | content_hash | VARCHAR(64) | DEFAULT NULL | SimHash 64bit 指纹（给 C 做近似去重和聚合用） | **A** |
+ | verification_type | VARCHAR(50) | DEFAULT NULL | 信源认证类型 | **A** |
  | sentiment_label | VARCHAR(10) | DEFAULT NULL | 情感标签：正面/负面/中性（C 回填） | **B** |
  | sentiment_score | FLOAT | DEFAULT NULL | 情感置信度 [0, 1]（C 回填） | **B** |
  | keywords | TEXT | DEFAULT NULL | JSON 数组或逗号分隔关键词（C 回填） | **B** |
@@ -113,6 +116,7 @@
  | publish_time | DATETIME | DEFAULT NULL | 评论发布时间 | **A** |
  | crawl_time | DATETIME | NOT NULL | 抓取时间 | **A** | 
  | content_hash | VARCHAR(64) | DEFAULT NULL | SimHash 64bit 指纹 | **A** | 
+ | duplicate_count | INT | DEFAULT 1 | 相同或近似评论累计出现次数 | **A** | 
  | sentiment_label | VARCHAR(10) | DEFAULT NULL | 情感标签（B回填） | **B** | 
  | sentiment_score | FLOAT | DEFAULT NULL | 情感置信度（B回填） | **B** |
  | keywords | TEXT | DEFAULT NULL | 关键词（B回填） | **B** |
@@ -121,7 +125,15 @@
  > **content_hash 说明**：SimHash(clean_content).value 的字符串形式（64 位整数转 str）。算法做事件聚合时可直接比对 SimHash 距离，无需重新计算全文指纹。
  
  
- 
+> **verification_type 说明**：由 A 阶段爬虫根据各平台原始认证信息（如微博 verified_type）归一化后写入，五档枚举，跨平台统一：
+
+| 枚举值 | 含义 |
+|------|------|
+| `官方平台` | 业务白名单权威媒体/平台官方账号（如人民日报、央视新闻、新华社） |
+| `头部认证个人` | 平台按影响力/内容质量评定的高权重个人（如微博红V/金V） |
+| `认证个人` | 基础个人身份/资质认证（如微博黄V） |
+| `认证机构` | 机构类账号，不区分企业/政府/媒体/校园等子类型（如微博蓝V） |
+| `普通用户` | 无认证，或来源不适用认证概念（如新浪新闻这类新闻网站文章） | 
 > **clean_status 说明**:
 
 | 状态 | 含义 |
@@ -142,7 +154,7 @@
  
  ## 配置方式
  
- ### 数据库+微博连接
+ ### 数据库+cookie连接
  通过 `.env` 文件管理（已加入 `.gitignore`）：
  ```
  DB_USER=root
@@ -153,9 +165,10 @@
 
  SINA_COOKIE=your_sina_cookie_here
  WEIBO_COOKIE=your_weibo_cookie_here
-
+ ZHIHU_COOKIE=your_zhihu_cookie_here
  # 多账号轮换（可选）
  # WEIBO_COOKIE_2=your_second_weibo_cookie_here
+ # ZHIHU_COOKIE_2=your_second_zhihu_cookie_here
  ```
  
  ### crawl_config.json 结构
@@ -194,3 +207,16 @@
  python scheduler.py
  python scheduler.py --run-once
  ```
+ 
+ ## 新平台接入指南
+ 1. 在 crawlers/ 下新建模块，类上加 @register("平台名")
+ 2. 定义 display_name、extractor_type（news/social/weibo）
+ 3. 实现 search_multi_page(keyword, max_pages) → 候选列表
+ 4. 可选：实现 fetch_comments() 支持评论爬取
+ 5. 可选：在 pipeline/extractor.py 新增提取策略并注册到 EXTRACTOR_MAP
+ 6. 在 cleaner.py 的 BOILERPLATE_PATTERNS 追加平台 boilerplate
+ 7. 在 crawl_config.json 新增平台配置
+ 
+
+
+

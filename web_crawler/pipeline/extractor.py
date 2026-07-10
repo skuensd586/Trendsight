@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-正文抽取策略。
-所有策略统一实现同一接口: extract(url, html=None) -> dict | None
-新闻站点 → NewspaperExtractor (newspaper3k)
-社交页面 → ReadabilityExtractor (readability-lxml)
-微博     → WeiboExtractor (weibo.com/ajax/statuses/show)
+正文内容提取器
+统一接口: extract(url, html=None) -> dict | None
+新闻  | NewspaperExtractor (newspaper3k)
+通用  | ReadabilityExtractor (readability-lxml)
+微博  | WeiboExtractor
+知乎  | ZhihuExtractor
 """
 from newspaper import Article
+from crawlers.weibo import _classify_credibility
 import requests
 import re
 import json
@@ -22,7 +24,7 @@ _DEFAULT_HEADERS = {
 
 
 class NewspaperExtractor:
-    """新闻站点正文抽取，基于 newspaper3k"""
+    """基于 newspaper3k 的正文抽取器"""
     def __init__(self, headers: dict | None = None):
         self.headers = headers or _DEFAULT_HEADERS
 
@@ -48,13 +50,13 @@ class NewspaperExtractor:
 
 
 class ReadabilityExtractor:
-    """社交页面正文抽取，基于 readability-lxml"""
+    """基于 readability-lxml 的正文抽取器"""
     def __init__(self, headers: dict | None = None):
         self.headers = headers or _DEFAULT_HEADERS
         try:
             from readability import Document as _RDoc
         except ImportError:
-            raise ImportError("需要安装: pip install readability-lxml")
+            raise ImportError("????: pip install readability-lxml")
         self._Document = _RDoc
 
     def extract(self, url: str, html: str | None = None) -> dict | None:
@@ -78,8 +80,9 @@ class ReadabilityExtractor:
             return None
 
 
+
 class WeiboExtractor:
-    """微博正文抽取：帖子 URL → 调用 ajax/statuses/show → 返回结构化数据"""
+    """微博正文抽取器: URL → ajax/statuses/show → 获取帖子内容"""
 
     def __init__(self, headers: dict | None = None):
         self.headers = headers or {
@@ -123,9 +126,6 @@ class WeiboExtractor:
                 print("  [WeiboExtractor] 未读到 WEIBO_COOKIE，"
                       "ajax/statuses/show 将以未登录状态请求")
         except Exception as e:
-            # 之前这里是 except Exception: pass，会把 NameError 等
-            # 加载期间的真实错误静默吞掉，导致 session 悄悄变成无 cookie
-            # 状态却毫无提示。改成打印出来，方便下次一眼看到问题。
             print(f"  [WeiboExtractor] Cookie 加载失败: {e}")
         return self._session
 
@@ -159,18 +159,125 @@ class WeiboExtractor:
             if not content:
                 return None
             return {
-                "title": content[:50],
-                "content": content,
-                "authors": [user.get("screen_name", "")] if user.get("screen_name") else [],
-                "publish_date": None,
-            }
+                     "title": content[:50],
+                     "content": content,
+                     "authors": [user.get("screen_name", "")] if user.get("screen_name") else [],
+                     "verification_type": _classify_credibility(user),
+                     "publish_date": None,
+}
         except Exception as e:
             print(f"  [WeiboExtractor] {url}: {e}")
             return None
 
+class ZhihuExtractor:
+    """知乎回答/文章正文抽取。
+    优先使用 crawler.fetch_answers() 里已经带回的 _raw 数据（html 参数传入，
+    避免重复请求）；没有时才回退到单条回答详情接口。
+    """
+
+    def __init__(self, headers: dict | None = None):
+        self.headers = headers or _DEFAULT_HEADERS
+        self._session = None
+
+    def set_session(self, session: requests.Session):
+        """注入爬虫的 session，实现 cookie 共享（与 WeiboExtractor 一致）"""
+        self._session = session
+
+    def _load_session(self) -> requests.Session:
+        if self._session is not None:
+            return self._session
+        self._session = requests.Session()
+        try:
+            from dotenv import load_dotenv
+            _env_path = os.path.join(os.path.dirname(__file__), "..", ".env")
+            load_dotenv(dotenv_path=_env_path)
+            cookie = os.getenv("ZHIHU_COOKIE", "")
+            if cookie:
+                for item in cookie.split(";"):
+                    item = item.strip()
+                    if "=" in item:
+                        name, value = item.split("=", 1)
+                        self._session.cookies.set(name.strip(), value.strip(), domain=".zhihu.com")
+                print(f"  [ZhihuExtractor] 已加载 Cookie，长度={len(cookie)}")
+        except Exception as e:
+            print(f"  [ZhihuExtractor] Cookie 加载失败: {e}")
+        return self._session
+
+    @staticmethod
+    def _strip_html(html: str) -> str:
+        text = re.sub(r"<[^>]+>", "", html or "")
+        return text.replace("&nbsp;", " ").strip()
+
+    def extract(self, url: str, html: str | None = None) -> dict | None:
+        try:
+            # ── 专栏文章（zhuanlan.zhihu.com/p/xxx）──
+            m_article = re.search(r"zhuanlan\.zhihu\.com/p/(\d+)", url)
+            if m_article:
+                session = self._load_session()
+                page_headers = self.headers.copy()
+                page_headers["Referer"] = url
+                resp = session.get(url, headers=page_headers, timeout=15)
+                resp.raise_for_status()
+                page_html = resp.text
+                reader = ReadabilityExtractor()
+                result = reader.extract(url, html=page_html)
+                if result and result.get("content"):
+                    # readability 返回整个 HTML 片段，剥离标签只留纯文本
+                    text = self._strip_html(result["content"])
+                    # 对 <p> 等标签给一个简单替换，保留段落间的换行
+                    text = re.sub(r"</?p[^>]*>", "\n", text)
+                    text = re.sub(r"<br\s*/?>", "\n", text)
+                    text = self._strip_html(text)  # 去掉剩余标签
+                    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+                    return {
+                        "title": result["title"],
+                        "content": text,
+                        "authors": result.get("authors", []),
+                        "verification_type": "普通用户",
+                        "publish_date": None,
+                    }
+                return None
+
+            # html 参数复用 crawler 里带回的 _raw 字典（kind=answer 的 candidate["_raw"]）
+            if html and isinstance(html, dict):
+                item = html
+            else:
+                m = re.search(r"answer/(\d+)", url)
+                if not m:
+                    return None
+                answer_id = m.group(1)
+                session = self._load_session()
+                api_url = f"https://www.zhihu.com/api/v4/answers/{answer_id}"
+                api_headers = self.headers.copy()
+                api_headers["Referer"] = "https://www.zhihu.com/"
+                resp = session.get(api_url, params={"include": "content"},
+                                   headers=api_headers, timeout=15)
+                resp.raise_for_status()
+                item = resp.json()
+
+            content = self._strip_html(item.get("content", ""))
+            if not content or len(content) < 10:
+                return None
+
+            author = item.get("author", {})
+            question = item.get("question", {})
+            title = question.get("title") or content[:50]
+
+            from crawlers.zhihu import _classify_credibility, _parse_zhihu_time
+            return {
+                "title": title,
+                "content": content,
+                "authors": [author.get("name", "")] if author.get("name") else [],
+                "verification_type": _classify_credibility(author),
+                "publish_date": _parse_zhihu_time(item.get("created_time")),
+            }
+        except Exception as e:
+            print(f"  [ZhihuExtractor] {url}: {e}")
+            return None
 
 EXTRACTOR_MAP = {
     "news":   NewspaperExtractor(),
     "social": ReadabilityExtractor(),
     "weibo":  WeiboExtractor(),
+    "zhihu":  ZhihuExtractor(),
 }

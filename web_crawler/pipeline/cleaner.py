@@ -64,5 +64,6 @@ def build_document(raw: dict, candidate: dict, platform: str = "新浪新闻", p
         "crawl_time": datetime.now(),
         "content_hash": str(Simhash(content).value),
         "clean_status": "raw",
+        "verification_type": raw.get("verification_type") or candidate.get("verification_type"),
         "event_id": None,
     }

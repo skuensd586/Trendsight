@@ -1,28 +1,41 @@
 {
   "crawler": {
+    "zhihu": {
+      "enabled": true,
+      "keywords": [
+        "Claude Code 后门",
+        "工信部NVDB风险提示Claude",
+        "Anthropic承认植入标记",
+        "Claude打水印",
+        "阿里卸载Claude"
+      ],
+      "max_articles_per_keyword": 10,
+      "max_comments_per_article": 10,
+      "request_interval": 3.0
+    },
     "weibo": {
       "enabled": true,
       "keywords": [
-        "广西洪灾",
-        "广西暴雨",
-        "六蓝水库决堤",
-        "横州",
-        "广西辟谣"
+        "Claude Code 后门",
+        "工信部NVDB风险提示Claude",
+        "Anthropic承认植入标记",
+        "Claude打水印",
+        "阿里卸载Claude"
       ],
-      "max_articles_per_keyword": 30,
-      "max_comments_per_article": 25,
+      "max_articles_per_keyword": 10,
+      "max_comments_per_article": 10,
       "request_interval": 1.5
     },
     "sina": {
       "enabled": true,
       "keywords": [
-        "广西洪灾",
-        "广西暴雨",
-        "六蓝水库决堤",
-        "横州",
-        "广西辟谣"
+        "Claude Code 后门",
+        "工信部NVDB风险提示Claude",
+        "Anthropic承认植入标记",
+        "Claude打水印",
+        "阿里卸载Claude"
       ],
-      "max_articles_per_keyword": 40,
+      "max_articles_per_keyword": 10,
       "request_interval": 1.5
     }
   },

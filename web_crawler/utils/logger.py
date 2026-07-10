@@ -58,3 +58,6 @@ def get_logger(name: str = "crawler") -> logging.Logger:
     if not name.startswith("crawler"):
         name = f"crawler.{name}"
     return logging.getLogger(name)
+
+
+setup_logging = _configure_root

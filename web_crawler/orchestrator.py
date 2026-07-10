@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 编排器：统一流水线入口。
 选择爬虫 → 搜索 → 提取正文 → 清洗 → 去重 → 入库。
@@ -32,6 +32,7 @@ from storage import (
     save_document,
     check_comment_url,
     check_comment_content,
+    increase_comment_duplicate_count,
     save_comment,
 )
 import os
@@ -72,6 +73,7 @@ def run(keyword: str,
         engine=None,
         cookie: str | None = None,
         sina_cookie: str | None = None,
+        zhihu_cookie: str | None = None,
         crawler=None) -> dict:
     """
     对一个平台的单个关键词执行完整爬取流水线。
@@ -83,6 +85,7 @@ def run(keyword: str,
     dry_run      — 仅测试不入库
     engine       — 外部传入的 SQLAlchemy engine
     sina_cookie  — 新浪 Cookie（仅 sina 平台使用，微博登录态）
+    zhihu_cookie — 知乎 Cookie（仅 zhihu 平台使用）
     crawler      — 外部传入的爬虫实例（None 则内部创建）
     """
     ptag = platform
@@ -96,10 +99,12 @@ def run(keyword: str,
             crawler_kwargs["cookie"] = cookie
         if sina_cookie is not None and platform == "sina":
             crawler_kwargs["cookie"] = sina_cookie
+        if zhihu_cookie is not None and platform == "zhihu":
+            crawler_kwargs["cookie"] = zhihu_cookie
         crawler = get_crawler(platform, **crawler_kwargs)
     extractor = EXTRACTOR_MAP.get(crawler.extractor_type)
-    # 微博平台：复用爬虫 session，使 cookie 刷新 / 账号轮换自动同步到正文提取
-    if platform == "weibo" and hasattr(extractor, "set_session"):
+    # 微博/知乎：复用爬虫 session，使 cookie 刷新 / 账号轮换自动同步到正文提取
+    if platform in ("weibo", "zhihu") and hasattr(extractor, "set_session"):
         extractor.set_session(crawler.session)
     pages_needed = max(1, (limit // _ESTIMATED_CANDIDATES_PER_PAGE) + _PAGE_BUFFER)
     candidates = crawler.search_multi_page(keyword, max_pages=pages_needed)
@@ -145,32 +150,49 @@ def run(keyword: str,
                 log.info("  已入库: %s", doc["title"])
             success += 1
 
-            # -- 评论爬取（仅社交平台，如微博） --
+            # -- 评论爬取（仅社交平台，如微博/知乎） --
+            # 不同平台 fetch_comments 所需参数不同（微博要 tweet_mid+uid，
+            # 知乎直接用 answer_id），这里按平台分别取参数，取到再统一调用。
             if not dry_run and hasattr(crawler, "fetch_comments") and engine is not None:
-                tweet_id = candidate.get("tweet_id")
-                uid = candidate.get("uid")
-                if tweet_id and uid:
-                    try:
-                        tweet_mid = url_to_mid(tweet_id)
-                        comment_list = crawler.fetch_comments(
-                            tweet_mid, uid, max_count=max_comments)
-                        if comment_list:
-                            log.info("  [评论] 拉取到 %d 条评论", len(comment_list))
-                        for cm in comment_list:
-                            cm["parent_post_id"] = doc["doc_id"]
-                            cm["source_platform"] = crawler.display_name
-                            cm["crawl_time"] = datetime.now()
-                            cm["content_hash"] = str(Simhash(
-                                cm.get("content", "")).value)
-                            cm["clean_status"] = "raw"
-                            if reason := check_comment_url(engine, cm["source_url"]):
-                                continue
-                            if reason := check_comment_content(
-                                    engine, cm["content"]):
-                                continue
-                            save_comment(engine, cm)
-                    except Exception as e:
-                        log.error("  [评论拉取异常] %s", e)
+                comment_list = []
+                try:
+                    if platform == "weibo":
+                        tweet_id = candidate.get("tweet_id")
+                        uid = candidate.get("uid")
+                        if tweet_id and uid:
+                            tweet_mid = url_to_mid(tweet_id)
+                            comment_list = crawler.fetch_comments(
+                                tweet_mid, uid, max_count=max_comments)
+                    elif platform == "zhihu":
+                        # 只有回答（kind=answer）才有评论区，问题/文章跳过
+                        if candidate.get("kind") == "answer":
+                            comment_list = crawler.fetch_comments(
+                                candidate["id"], max_count=max_comments)
+
+                    if comment_list:
+                        log.info("  [评论] 拉取到 %d 条评论", len(comment_list))
+                    for cm in comment_list:
+                        cm["parent_post_id"] = doc["doc_id"]
+                        cm["source_platform"] = crawler.display_name
+                        cm["crawl_time"] = datetime.now()
+                        cm["content_hash"] = str(
+                            Simhash(
+                                    cm.get("content", "")
+                            ).value
+                        )
+                        cm["duplicate_count"] = 1
+                        cm["clean_status"] = "raw"
+                        if reason := check_comment_url(engine, cm["source_url"]):
+                             log.debug("评论URL重复: %s",reason)
+                             continue
+                        duplicate = check_comment_content(engine,cm["content"])
+                        if duplicate:
+                             log.info("发现重复评论: distance=%s",duplicate["distance"])
+                             increase_comment_duplicate_count(engine,duplicate["content_hash"])
+                             continue
+                        save_comment(engine, cm)
+                except Exception as e:
+                    log.error("  [评论拉取异常] %s", e)
             # -------------------------------
             time.sleep(_REQUEST_INTERVAL)
     finally:
@@ -224,6 +246,7 @@ def run_all_from_config(dry_run: bool = False,
             max_comments = pc.get("max_comments_per_article", _DEFAULT_MAX_COMMENTS)
             weibo_cookie = os.getenv("WEIBO_COOKIE")
             sina_cookie = os.getenv("SINA_COOKIE")
+            zhihu_cookie = os.getenv("ZHIHU_COOKIE")
             platform_results = {}
             # 每个平台只构造一次爬虫实例，跨关键词复用 session
             crawler_kwargs = {}
@@ -231,7 +254,9 @@ def run_all_from_config(dry_run: bool = False,
                 crawler_kwargs["cookie"] = weibo_cookie
             if sina_cookie is not None and pname == "sina":
                 crawler_kwargs["cookie"] = sina_cookie
-            crawler = get_crawler(pname, **crawler_kwargs) if pname in ("weibo", "sina") else None
+            if zhihu_cookie is not None and pname == "zhihu":
+                crawler_kwargs["cookie"] = zhihu_cookie
+            crawler = get_crawler(pname, **crawler_kwargs) if pname in ("weibo", "sina", "zhihu") else None
 
             log.info("=" * 60)
             log.info("平台=%s, 关键词数=%d, limit=%d, max_comments=%d",
@@ -248,6 +273,7 @@ def run_all_from_config(dry_run: bool = False,
                     dry_run=dry_run,
                     cookie=weibo_cookie,
                     sina_cookie=sina_cookie,
+                    zhihu_cookie=zhihu_cookie,
                     crawler=crawler,
                 )
                 platform_results[kw] = result
@@ -298,6 +324,7 @@ if __name__ == "__main__":
         _max_comments = args.max_comments
         _cookie = None
         _sina_cookie = None
+        _zhihu_cookie = None
 
         try:
             _cfg = load_and_validate_config()["crawler"]
@@ -308,6 +335,7 @@ if __name__ == "__main__":
                 _max_comments = _pc.get("max_comments_per_article", _DEFAULT_MAX_COMMENTS)
             _cookie = os.getenv("WEIBO_COOKIE")
             _sina_cookie = os.getenv("SINA_COOKIE")
+            _zhihu_cookie = os.getenv("ZHIHU_COOKIE")
         except ConfigError as e:
             log.error("配置校验失败，已终止: %s", e)
             raise SystemExit(1)
@@ -320,6 +348,7 @@ if __name__ == "__main__":
 
         run(args.keyword, platform=_platform,
             limit=_limit, max_comments=_max_comments,
-            dry_run=args.dry_run, cookie=_cookie, sina_cookie=_sina_cookie)
+            dry_run=args.dry_run, cookie=_cookie, sina_cookie=_sina_cookie,
+            zhihu_cookie=_zhihu_cookie)
     else:
         parser.print_help()

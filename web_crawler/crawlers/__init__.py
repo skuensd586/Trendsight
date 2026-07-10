@@ -38,3 +38,4 @@ def list_platforms() -> list[str]:
 # 确保所有爬虫模块在导入时完成注册
 from crawlers import sina  # noqa: F401
 from crawlers import weibo  # noqa: F401
+from crawlers import zhihu  # noqa: F401

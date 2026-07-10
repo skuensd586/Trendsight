@@ -10,11 +10,7 @@ from urllib.parse import quote
 import time
 import requests
 from crawlers import register
-from utils import get_logger, request_with_retry
-
-log = get_logger("sina")
-from utils.retry import retry_with_backoff
-from utils.logger import get_logger
+from utils import get_logger, retry_with_backoff
 
 log = get_logger("sina")
 

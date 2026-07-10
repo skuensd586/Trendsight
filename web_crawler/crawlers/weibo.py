@@ -57,6 +57,33 @@ def url_to_mid(url_seg: str) -> int:
     return int(result)
 
 
+def _classify_credibility(user: dict) -> str:
+    """根据微博用户信息判断认证类型。
+    返回认证类型字符串：官方平台 / 头部认证个人 / 认证个人 / 认证机构 / 普通用户
+    """
+    if not user:
+        return "普通用户"
+    _OFFICIAL_NEWS_ACCOUNTS = {
+        "人民日报", "央视新闻", "新华社",
+        "人民网", "光明网"
+    }
+    screen_name = user.get("screen_name", "")
+    if screen_name in _OFFICIAL_NEWS_ACCOUNTS:
+        return "官方平台"
+    verified_type = user.get("verified_type", -1)
+    verified_type_ext = user.get("verified_type_ext", -1)
+
+    # 橙V（verified_type_ext=2）和金V（verified_type_ext=1）属于头部认证个人
+    if verified_type == 0 and verified_type_ext ==2 :
+        return "头部认证个人"
+    if verified_type in (200, 220):
+        return "头部认证个人"
+    if verified_type == 0:
+        return "认证个人"
+    if 1 <= verified_type <= 8:  # 企业/政府/媒体/校园/网站/应用/团体/待审企业
+        return "认证机构"
+    return "普通用户"  # 覆盖 -1（普通用户）和 400（已故V用户）等其余取值
+
 def _parse_weibo_time(s: str) -> str:
     """将微博 API 返回的 RFC 2822 时间格式转为 YYYY-MM-DD HH:mm:ss"""
     try:
@@ -133,7 +160,6 @@ class WeiboCrawler:
         if self._cookie_pool and self._current_idx < len(self._cookie_pool):
             return self._cookie_pool[self._current_idx]
         return None
-
     def _apply_cookie_to_session(self, session, cookie: str | None):
         """清除 session 中的所有 cookie，重新设置指定的 cookie 到两个域。"""
         session.cookies.clear()
@@ -196,7 +222,7 @@ class WeiboCrawler:
         except (requests.RequestException, json.JSONDecodeError) as e:
             log.warning("%s -> %s", url, e)
             return None
-
+        ver_type = _classify_credibility(user)
     # ---- 访客 Cookie 自动刷新 ----
 
     def _try_refresh_visitor_cookie(self) -> bool:
@@ -288,10 +314,12 @@ class WeiboCrawler:
         uid = user.get("id", "")
         if not mblogid or not uid:
             return None
+        ver_type = _classify_credibility(user)
         return {
             "url": f"https://weibo.com/{uid}/{mblogid}",
             "tweet_id": mblogid,
             "uid": str(uid),
+            "verification_type": ver_type,
         }
 
     def _cards_to_candidates(self, cards: list[dict]) -> list[dict]:

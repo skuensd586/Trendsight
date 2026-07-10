@@ -19,39 +19,23 @@ CREATE TABLE IF NOT EXISTS raw_documents (
     sentiment_score  FLOAT         DEFAULT NULL          COMMENT '情感置信度（B 回填）',
     keywords         TEXT          DEFAULT NULL          COMMENT '关键词列表（B 回填）',
     event_id         INT           DEFAULT NULL          COMMENT '所属事件 ID（B/C 回填）',
+    verification_type VARCHAR(50)  DEFAULT NULL          COMMENT '信源认证类型：官方平台 / 头部认证个人 / 认证个人 / 认证机构 / 普通用户；',
     clean_status     VARCHAR(20)   DEFAULT 'raw' NOT NULL COMMENT '数据状态',
 
-    INDEX idx_platform     (source_platform),
-    INDEX idx_publish_time (publish_time),
-    INDEX idx_event        (event_id),
-    INDEX idx_clean_status (clean_status)
+    INDEX idx_platform      (source_platform),
+    INDEX idx_publish_time  (publish_time),
+    INDEX idx_event         (event_id),
+    INDEX idx_clean_status  (clean_status),
+    INDEX idx_verification  (verification_type),
+
+    CONSTRAINT chk_verification_type CHECK (
+        verification_type IN ('官方平台','头部认证个人','认证个人','认证机构','普通用户')
+        OR verification_type IS NULL
+    )
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='多平台新闻帖子原始数据';
 
--- 2. 用户表（C 模块认证）
-CREATE TABLE IF NOT EXISTS users (
-    id            INT           NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    username      VARCHAR(64)   NOT NULL UNIQUE,
-    password_hash VARCHAR(255)  NOT NULL,
-    created_at    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='用户账号';
-
--- 3. 用户偏好配置表
-CREATE TABLE IF NOT EXISTS user_preferences (
-    id            INT           NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    user_id       INT           NOT NULL UNIQUE,
-    fields        JSON          NOT NULL   COMMENT '关注领域列表',
-    keywords      JSON          NOT NULL   COMMENT '关注关键词列表',
-    platform_urls JSON          NOT NULL   COMMENT '关注平台网址列表',
-    created_at    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='用户关注偏好';
-
--- 4. 社交平台评论原始数据表
+-- 2. 社交平台评论原始数据表
 CREATE TABLE IF NOT EXISTS raw_comments (
     comment_id       VARCHAR(64)   NOT NULL PRIMARY KEY COMMENT '微博接口返回的评论 ID 字符串',
     source_platform  VARCHAR(20)   NOT NULL             COMMENT '来源平台',
@@ -76,5 +60,3 @@ CREATE TABLE IF NOT EXISTS raw_comments (
     INDEX idx_publish_time (publish_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='社交平台评论原始数据';
-
-
