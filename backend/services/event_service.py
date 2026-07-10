@@ -111,7 +111,7 @@ def get_events(
     size: int = 20,
 ) -> dict:
     total = db.query(Event).count()
-    query = db.query(Event).order_by(Event.heat.desc().nullslast())
+    query = db.query(Event).order_by(Event.heat.is_(None).asc(), Event.heat.desc())
     items = query.offset((page - 1) * size).limit(size).all()
     total_pages = max(1, (total + size - 1) // size) if total > 0 else 0
 
