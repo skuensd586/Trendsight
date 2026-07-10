@@ -59,12 +59,16 @@ def _validate(cfg: dict, path: str):
         raise ConfigError(f"{path}: 'scheduler' 字段必须是对象")
     if "interval_hours" in scheduler_cfg and scheduler_cfg["interval_hours"] <= 0:
         raise ConfigError(f"{path}: scheduler.interval_hours 必须大于 0")
+
     log.info("配置校验通过: %s", path)
 
 
+
+
 def validate_config(cfg: dict) -> None:
-    """校验配置字典结构，不合法时抛出 ConfigError（不涉及文件 IO）"""
-    _validate(cfg, "<config>")
+    """Validate a loaded config dict without loading from file (raises ConfigError)."""
+    _validate(cfg, "(loaded_config)")
+
 
 def enabled_platforms(cfg: dict) -> list[str]:
     """返回已启用且配置了 keywords 的平台名列表"""

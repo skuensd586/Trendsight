@@ -60,4 +60,6 @@ def get_logger(name: str = "crawler") -> logging.Logger:
     return logging.getLogger(name)
 
 
-setup_logging = _configure_root
+def setup_logging():
+    """Configure the root logger (idempotent)."""
+    _configure_root()
