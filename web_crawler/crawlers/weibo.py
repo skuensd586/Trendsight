@@ -460,16 +460,20 @@ class WeiboCrawler:
         if all_candidates:
             return all_candidates
 
-        # 方案三: 账号轮换后再试一次
-        if self._rotate_account():
-            log.info("轮换账号后降级 s.weibo.com...")
+        # 方案三: 循环轮换账号，逐个用 s.weibo.com 兜底
+        while self._rotate_account():
+            log.info("轮换到账号 #%d/%d，降级 s.weibo.com...",
+                     self._current_idx + 1, len(self._cookie_pool))
             self._sleep(2.0)
+            account_candidates = []
             for page in range(1, max_pages + 1):
                 candidates = self._search_desktop_fallback(keyword, page=page)
                 if not candidates:
                     break
-                all_candidates.extend(candidates)
+                account_candidates.extend(candidates)
                 self._sleep()
+            if account_candidates:
+                return account_candidates
 
         return all_candidates
 
