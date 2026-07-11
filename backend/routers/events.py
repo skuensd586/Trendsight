@@ -109,7 +109,12 @@ class EventDetailData(BaseModel):
     trend: list[dict] = []
     future_trend: list[dict] = []
     authenticity: dict | None = None
+    authenticity_level: str | None = None
+    authenticity_label: str | None = None
+    authenticity_description: str | None = None
     duplicate_rate: float | None = None
+    similar_events: list[dict] = []
+    advice: dict | None = None
     summary: str | None = None
     location: str | None = None
     cause: str | None = None

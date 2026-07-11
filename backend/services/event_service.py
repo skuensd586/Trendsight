@@ -11,6 +11,9 @@ from sqlalchemy.orm import Session
 
 from models.event import Event, EventKeyword, EventPlatform, EventTrendDaily
 
+from services.similarity_service import find_similar_events
+from services.advice_service import generate_event_advice
+
 
 def save_event(
     db: Session,
@@ -223,6 +226,30 @@ def get_event_detail(
     dc = event.duplicate_count or 0
     total_val = rc + dc
     duplicate_rate = round(dc / total_val, 3) if total_val > 0 else 0.0
+
+    # Authenticity level
+    authenticity_level = None
+    authenticity_label = None
+    authenticity_description = None
+    if event.authenticity and isinstance(event.authenticity, dict):
+        score = event.authenticity.get("credibility_score")
+        if score is not None:
+            if score >= 0.8:
+                authenticity_level = "high"
+                authenticity_label = "高可信"
+                authenticity_description = "来源可靠，官方或认证来源占比较高"
+            elif score >= 0.5:
+                authenticity_level = "medium"
+                authenticity_label = "中等可信"
+                authenticity_description = "存在一定可靠来源，但仍需要进一步核验"
+            else:
+                authenticity_level = "low"
+                authenticity_label = "低可信"
+                authenticity_description = "普通来源比例较高，建议谨慎传播"
+
+    # Similar events
+    similar_events = find_similar_events(db, event.event_id)
+    advice = generate_event_advice(event, similar_events)
     return {
         "event_id": event.event_id,
         "title": event.title,
@@ -247,7 +274,12 @@ def get_event_detail(
         },
         "sources": event.sources,
         'authenticity': event.authenticity,
+        'authenticity_level': authenticity_level,
+        'authenticity_label': authenticity_label,
+        'authenticity_description': authenticity_description,
         'duplicate_rate': duplicate_rate,
+        'similar_events': similar_events,
+        'advice': advice,
         'summary': event.summary,
         'location': event.location,
         'cause': event.cause,

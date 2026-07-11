@@ -249,7 +249,7 @@ python create_test_user.py
 #### GET /api/events/{event_id}
 
 - **用途**：获取单个事件完整详情
-- **返回**：事件基础信息、情感分布（sentiment）、生命周期概率（stage_probability）、关键词（keywords）、平台分布（platform_distribution）、趋势数据（trend / future_trend）
+- **返回**：事件基础信息、情感分布（sentiment）、生命周期概率（stage_probability）、关键词（keywords）、平台分布（platform_distribution）、趋势数据（trend / future_trend）、信源可信度与分级（authenticity / authenticity_level）、事件详情（summary / location / cause / people）、相似事件列表（similar_events）、处置建议（advice）
 
 #### 事件相关接口总览
 
