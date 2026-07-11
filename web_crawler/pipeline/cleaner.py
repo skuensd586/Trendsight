@@ -80,12 +80,8 @@ def build_document(raw: dict, candidate: dict, platform: str = "新浪新闻", p
         publish_time = parsed if parsed is not None else (raw.get("publish_date") or datetime.now())
     else:
         publish_time = raw.get("publish_date") or datetime.now()
-    author = (
-        ", ".join(raw.get("authors", []))
-        or candidate.get("media_show")
-        or (candidate.get("_raw") or {}).get("author", {}).get("name")
-        or None
-    )
+    # 按需求：author 字段直接使用来源平台名（media_show），不区分真实撰稿人
+    author = candidate.get("media_show") or None
     url_hash = hashlib.md5(candidate["url"].encode()).hexdigest()[:8]
     ts = publish_time.strftime("%Y%m%d%H%M%S")
     return {

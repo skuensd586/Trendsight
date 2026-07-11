@@ -288,12 +288,6 @@ class WeiboCrawler:
                 log.warning("incarnate 未种下 SUB，HTTP %s", incarnate_resp.status_code)
                 return False
 
-            # 关键修复：无论新 SUB 落在哪个域，都强制覆盖同步到
-            # .weibo.com 和 .weibo.cn 两个域。_init_session 里手动粘贴
-            # 进来的旧 cookie 是同时写入这两个域的；如果这里不强制覆盖
-            # .weibo.cn 域下的旧值，m.weibo.cn 的搜索请求依然会带着
-            # 旧的、已失效的 SUB，导致"访客 cookie 刷新成功"打印出来了，
-            # 但紧接着的搜索请求仍然是 ok=-100。
             new_sub = self.session.cookies.get("SUB", domain=".weibo.com")
             new_subp = self.session.cookies.get("SUBP", domain=".weibo.com")
             for domain in (".weibo.com", ".weibo.cn"):
@@ -340,7 +334,7 @@ class WeiboCrawler:
 
     # ---- 搜索入口 ----
 
-    def search(self, keyword: str, page: int = 1) -> list[dict]:
+    def search(self, keyword: str, page: int = 1,mode: str = "hot") -> list[dict]:
         """使用 m.weibo.cn 移动端 API 搜索。
         自动检测 cookie 过期并尝试访客 cookie 刷新 / 多账号轮换。
         """
@@ -348,6 +342,17 @@ class WeiboCrawler:
         params = {"type": "all", "query": keyword, "page": page}
         headers = self._headers(referer=f"https://m.weibo.cn/search?q={quote(keyword)}")
         headers["X-Requested-With"] = "XMLHttpRequest"
+
+        if mode == "time":
+            containerid = f"100103type=61&q={keyword}&t="
+        else:
+            containerid = f"100103type=1&q={keyword}"
+
+        params = {
+            "containerid": containerid,
+            "page_type": "searchall",
+            "page": page
+        }
 
         data = None
         for attempt in range(3):
@@ -434,12 +439,12 @@ class WeiboCrawler:
             log.warning("s.weibo.com 页面未解析到帖子链接")
         return candidates
 
-    def search_multi_page(self, keyword: str, max_pages: int = 3) -> list[dict]:
+    def search_multi_page(self, keyword: str, max_pages: int = 3, mode: str = "hot") -> list[dict]:
         all_candidates = []
 
         # 方案一: m.weibo.cn 移动端 API（search 内部已有 cookie 刷新 + 账号轮换）
         for page in range(1, max_pages + 1):
-            candidates = self.search(keyword, page=page)
+            candidates = self.search(keyword, page=page, mode=mode)
             if not candidates:
                 break
             all_candidates.extend(candidates)
