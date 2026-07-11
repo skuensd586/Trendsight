@@ -1,4 +1,4 @@
-"""Event analysis report persistence service.
+﻿"""Event analysis report persistence service.
 
 Takes an Algo pipeline analysis report (dict) and persists the data
 into the events table and its child tables (keywords, platforms, trend).
@@ -49,12 +49,13 @@ def save_event(
     event.prob_peak = stage_prob.get("peak", 0.0)
     event.prob_decline = stage_prob.get("decline", 0.0)
 
-    # Time range
-    time_range = report.get("time_range")
-    if isinstance(time_range, (list, tuple)) and len(time_range) >= 2:
-        event.time_start = time_range[0]
-        event.time_end = time_range[1]
+    event.time_start = report.get('time_start')
+    event.time_end = report.get('time_end')
 
+    # Authenticity
+    authenticity_val = report.get("authenticity")
+    if authenticity_val:
+        event.authenticity = authenticity_val
     db.add(event)
     db.flush()
 
@@ -90,7 +91,7 @@ def save_event(
         ))
 
     # === Trend 子表（预测数据） ===
-    for day in report.get("future_trend", []):
+    for day in lifecycle.get('future_trend', []):
         db.add(EventTrendDaily(
             event_id=event.event_id,
             date=day.get("date"),
@@ -109,11 +110,20 @@ def get_events(
     db: Session,
     page: int = 1,
     size: int = 20,
+    sort: str = "heat",
 ) -> dict:
     total = db.query(Event).count()
-    query = db.query(Event).order_by(Event.heat.is_(None).asc(), Event.heat.desc())
+    query = db.query(Event)
+    # Sort
+    if sort == 'time':
+        query = query.order_by(Event.event_time.is_(None).asc(), Event.event_time.desc())
+    elif sort == 'negative':
+        query = query.order_by(Event.negative.is_(None).asc(), Event.negative.desc())
+    else:
+        query = query.order_by(Event.heat.is_(None).asc(), Event.heat.desc())
     items = query.offset((page - 1) * size).limit(size).all()
     total_pages = max(1, (total + size - 1) // size) if total > 0 else 0
+
 
     return {
         "items": [
@@ -200,6 +210,11 @@ def get_event_detail(
             "decline": event.prob_decline,
         },
         "sources": event.sources,
+        'authenticity': event.authenticity,
+        'summary': event.summary,
+        'location': event.location,
+        'cause': event.cause,
+        'people': event.people,
         "time_start": event.time_start.isoformat() if event.time_start else None,
         "time_end": event.time_end.isoformat() if event.time_end else None,
         "created_at": event.created_at.isoformat() if event.created_at else None,

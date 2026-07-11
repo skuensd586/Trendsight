@@ -19,7 +19,7 @@ POST /analyze    主分析接口，输入原始文档和评论，返回事件分
 }
 ```
 
-`sentiment_method` 枚举：`bert`（默认）/ `ml`（TF-IDF+LR）/ `dict`（词典法）
+`sentiment_method` 枚举：**auto（默认，comment→bert / article→dict）** / bert / ml（TF-IDF+LR）/ dict（词典法）
 
 ### POST /analyze 返回字段
 
@@ -49,7 +49,15 @@ POST /analyze    主分析接口，输入原始文档和评论，返回事件分
         "analysis": "..."
       },
       "key_timepoints": [ "2026-07-08T14:49:51", ... ],
-      "comment_count": 101
+
+        "authenticity": {
+          "credibility_score": 0.85,
+          "official_ratio": 0.42,
+          "verified_ratio": 0.67,
+          "plain_user_ratio": 0.33,
+          "verification_dist": {“官方平台”: 0.42, “普通用户”: 0.33},
+          "factors": ["official_absent", "well_sourced"]
+        },
     }
   ]
 }
@@ -99,7 +107,8 @@ algo/
 | `lifecycle` | 完整生命周期对象（含置信度、各阶段概率、未来预测、文字说明）|
 | `sentiment` | 情感分布，有评论时来自评论，无评论时来自帖子正文 |
 | `comment_count` | 分配到该事件簇的评论数 |
-| `key_timepoints` | 变点检测标出的关键时间节点（API 合同暂未定义，作为附加字段）|
+| `authenticity`	| 信源可信度分析：credibility_score [0,1] / official_ratio / verified_ratio / verification_dist / factors
+| `key_timepoints`	| 变点检测标出的关键时间节点（API 合同暂未定义，作为附加字段）
 
 ## 本地运行
 

@@ -1,4 +1,4 @@
-"""C 模块后台分析工作者。
+﻿"""C 模块后台分析工作者。
 
 从爬虫数据库 (public_opinion_system) 读取 clean_status='raw' 的原始数据，
 调用 B 模块 Algo 服务进行分析，将结果写入 events 表，并回写原始数据状态。
@@ -76,6 +76,7 @@ def _to_algo_records(rows: list[dict]) -> list[dict]:
             "author": row.get("author", ""),
             "source_platform": row.get("source_platform", ""),
             "source_url": row.get("source_url", ""),
+            'verification_type': row.get('verification_type'),
             "publish_time": publish_time,
         })
     return records

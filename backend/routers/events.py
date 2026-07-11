@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+﻿from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -101,6 +101,11 @@ class EventDetailData(BaseModel):
     platform_distribution: list[EventPlatformItem] = []
     trend: list[dict] = []
     future_trend: list[dict] = []
+    authenticity: dict | None = None
+    summary: str | None = None
+    location: str | None = None
+    cause: str | None = None
+    people: dict | None = None
     trend_daily: list[EventTrendDailyItem] = []
 
 
@@ -147,20 +152,20 @@ def analyze_events(
 def list_events(
     page: int = 1,
     size: int = 20,
+    sort: str = 'heat',
     db: Session = Depends(get_db),
 ):
-    data = get_events(db, page=page, size=size)
-    return EventListResponse(data=EventListData(**data))
+    data = get_events(db, page=page, size=size, sort=sort)
 
 
 @router.get("/api/events/hot", response_model=EventListResponse)
 def hot_events(
     page: int = 1,
     size: int = 20,
+    sort: str = 'heat',
     db: Session = Depends(get_db),
 ):
-    data = get_events(db, page=page, size=size)
-    return EventListResponse(data=EventListData(**data))
+    data = get_events(db, page=page, size=size, sort=sort)
 
 
 @router.get("/api/events/{event_id}", response_model=EventDetailResponse)

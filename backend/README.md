@@ -241,9 +241,10 @@ python create_test_user.py
 
 - **用途**：获取事件列表（分页）
 - **参数**：page（可选，默认1）、size（可选，默认20）
+  - **sort**（可选，默认heat）：排序方式，heat / time / negative
 - **返回**：items[]（事件摘要列表）、total（总记录数）
 
-每题项包含 event_id、title、heat、report_count、risk_level、stage、event_time、created_at，按热度降序排列。
+每题项包含 event_id、title、heat、report_count、risk_level、stage、event_time、created_at，默认按热度降序排列，支持 sort 参数调整排序方式。
 
 #### GET /api/events/{event_id}
 
@@ -262,6 +263,7 @@ python create_test_user.py
 | GET | /api/events/{event_id}/platform | 平台分布 |
 | GET | /api/events/{event_id}/keywords | 关键词分析 |
 | GET | /api/events/{event_id}/lifecycle | 生命周期预测 |
+|  GET	| /api/events/hot		| 热点事件列表（分页和排序）
 
 > 子维度接口定义见 api-design/events.json 和 api-design/prediction.json。
 

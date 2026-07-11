@@ -1,4 +1,4 @@
-from datetime import datetime
+﻿from datetime import datetime
 
 from sqlalchemy import Column, Integer, String, Float, DateTime, Date, Text, JSON, ForeignKey, SmallInteger, Index
 from sqlalchemy.orm import relationship
@@ -32,6 +32,11 @@ class Event(Base):
     updated_at = Column(DateTime, nullable=False, default=datetime.now, onupdate=datetime.now)
     risk_level = Column(String(20), nullable=True)
     event_time = Column(DateTime, nullable=True)
+    summary = Column(Text, nullable=True)
+    location = Column(String(200), nullable=True)
+    cause = Column(Text, nullable=True)
+    people = Column(JSON, nullable=True)
+    authenticity = Column(JSON, nullable=True)
 
     trend_daily = relationship("EventTrendDaily", back_populates="event", cascade="all, delete-orphan")
     keywords = relationship("EventKeyword", back_populates="event", cascade="all, delete-orphan")

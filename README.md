@@ -36,6 +36,7 @@ D 前端（frontend — React + ECharts）
 - **风险等级**：基于热度 × 负面情感的规则法，分 high / mid_high / mid / low
 - **智能问答**：基于大模型的事件专项多轮对话
 - **信源可信度**：爬虫采集 `verification_type`（官方平台 / 认证机构 / 普通用户等）
+- **事件排序**：支持按热度（heat）/ 时间（event_time）/ 负面情感（negative）对事件列表进行排序
 
 ## 模块间交互
 
