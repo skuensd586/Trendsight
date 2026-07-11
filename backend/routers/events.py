@@ -1,10 +1,15 @@
 ﻿from fastapi import APIRouter, Depends, HTTPException, status
+from io import BytesIO
+from urllib.parse import quote
+
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from dependencies import get_db
 from utils.algo_client import call_algo
 from services.event_service import save_event, get_events, get_event_detail
+from services.brief_pdf_service import build_timestamp, generate_dashboard_brief_pdf, generate_event_brief_pdf, sanitize_filename_part
 
 
 class AnalyzeRequest(BaseModel):
@@ -126,6 +131,15 @@ class EventDetailResponse(BaseModel):
 router = APIRouter()
 
 
+def pdf_response(content: bytes, filename: str) -> StreamingResponse:
+    encoded = quote(filename)
+    return StreamingResponse(
+        BytesIO(content),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded}"},
+    )
+
+
 @router.post("/api/events/analyze", response_model=AnalyzeResponse)
 def analyze_events(
     request: AnalyzeRequest,
@@ -180,6 +194,43 @@ def hot_events(
 ):
     data = get_events(db, page=page, size=size, sort=sort, risk_level=risk_level, q=q)
     return EventListResponse(data=data)
+
+
+@router.get("/api/events/brief/dashboard.pdf")
+def dashboard_brief_pdf(
+    page: int = 1,
+    size: int = 20,
+    sort: str = 'heat',
+    risk_level: str | None = None,
+    q: str | None = None,
+    db: Session = Depends(get_db),
+):
+    data = get_events(db, page=page, size=min(size, 50), sort=sort, risk_level=risk_level, q=q)
+    content = generate_dashboard_brief_pdf(
+        data,
+        {
+            "sort": sort,
+            "risk_level": risk_level,
+            "q": q,
+        },
+    )
+    return pdf_response(content, f"Trendsight-事件看板简报-{build_timestamp()}.pdf")
+
+
+@router.get("/api/events/{event_id}/brief.pdf")
+def event_brief_pdf(
+    event_id: int,
+    db: Session = Depends(get_db),
+):
+    data = get_event_detail(db, event_id)
+    if data is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="\u4e8b\u4ef6\u4e0d\u5b58\u5728",
+        )
+    content = generate_event_brief_pdf(data)
+    title = sanitize_filename_part(data.get("title"), "未命名事件")
+    return pdf_response(content, f"Trendsight-事件简报-{title}-{build_timestamp()}.pdf")
 
 
 @router.get("/api/events/{event_id}", response_model=EventDetailResponse)

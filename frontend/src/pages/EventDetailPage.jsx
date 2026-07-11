@@ -9,6 +9,7 @@ import WordCloud from '../components/WordCloud.jsx';
 import { api, isBackendMode } from '../api/index.js';
 import { events } from '../data/events.js';
 import { clusterPoints, propagationSankey } from '../data/mockAnalytics.js';
+import { buildTimestamp, downloadPdfFromBackend, sanitizeFilePart } from '../utils/briefExport.js';
 
 const chartColors = ['#469B78', '#4E74BD', '#C93F45', '#D4783A', '#7962B3'];
 const defaultGeoDiscussion = [
@@ -71,6 +72,10 @@ function createEmptyDetailEvent(id = '') {
     pathLinks: [],
     qaSeed: '',
     advice: '暂无处置建议。',
+    adviceItems: [],
+    authenticityLevel: '',
+    authenticityLabel: '',
+    authenticityDescription: '',
     geoDiscussion: [],
   };
 }
@@ -84,6 +89,29 @@ function resolveFallbackEvent(id) {
 function formatCount(value) {
   if (value >= 10000) return `${(value / 10000).toFixed(1)}万`;
   return value.toLocaleString();
+}
+
+function normalizeSimilarEventItem(item, index) {
+  if (typeof item === 'string') {
+    return {
+      key: item,
+      title: item,
+      similarityLabel: '',
+      reason: '',
+    };
+  }
+
+  const similarity = Number(item?.similarity);
+  const similarityLabel = Number.isFinite(similarity)
+    ? `相似度 ${Math.round((similarity <= 1 ? similarity * 100 : similarity) * 10) / 10}%`
+    : '';
+
+  return {
+    key: String(item?.id || item?.event_id || item?.title || index),
+    title: item?.title || '未命名相似事件',
+    similarityLabel,
+    reason: item?.reason || '',
+  };
 }
 
 function buildTrendOption(event) {
@@ -1196,25 +1224,15 @@ export default function EventDetailPage() {
   const authenticityTopics = useMemo(() => buildFakeChecks(event), [event]);
   const discussionCount = Math.round(event.reportCount * (event.sentiment.negative + event.heat) * 0.18);
 
-  const exportReport = () => {
-    const content = [
-      `Trendsight 舆情分析报告`,
-      `事件：${event.title}`,
-      `热度：${event.heat}`,
-      `风险等级：${event.risk}`,
-      `生命周期：${event.stage}`,
-      `事件概述：${event.summary}`,
-      `情感分布：积极 ${event.sentiment.positive}% / 中性 ${event.sentiment.neutral}% / 消极 ${event.sentiment.negative}%`,
-      `关键词：${event.keywords.join('、')}`,
-      `处置建议：${event.advice}`,
-    ].join('\n');
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${event.title}-舆情分析报告.txt`;
-    link.click();
-    URL.revokeObjectURL(url);
+  const exportReport = async () => {
+    const timestamp = buildTimestamp();
+    const titlePart = sanitizeFilePart(event.title, '未命名事件').slice(0, 18);
+    try {
+      await downloadPdfFromBackend(`/api/events/${event.id}/brief.pdf`, `Trendsight-事件简报-${titlePart}-${timestamp}.pdf`);
+    } catch (error) {
+      console.error(error);
+      window.alert(`事件简报导出失败：${error.message || '请确认后端服务已启动'}`);
+    }
   };
 
   return (
@@ -1241,7 +1259,7 @@ export default function EventDetailPage() {
               </div>
               <button type="button" onClick={exportReport}>
                 <Download size={18} />
-                导出报告
+                导出事件简报
               </button>
             </div>
             <div className="detail-kpi-strip">
@@ -1333,6 +1351,15 @@ export default function EventDetailPage() {
           </ReportSection>
 
           <ReportSection id="authenticity" label="Authenticity" title="虚假文本检测">
+            {(event.authenticityLabel || event.authenticityDescription) && (
+              <div className={`auth-summary ${event.authenticityLevel || 'pending'}`}>
+                <div>
+                  <span>综合可信度</span>
+                  <b>{event.authenticityLabel || '待核验'}</b>
+                </div>
+                {event.authenticityDescription && <p>{event.authenticityDescription}</p>}
+              </div>
+            )}
             <div className="auth-topic-list">
               {authenticityTopics.map((item) => (
                 <article className={`auth-topic-card ${item.tone}`} key={item.topic}>
@@ -1352,14 +1379,38 @@ export default function EventDetailPage() {
           <section className="analysis-split bottom">
             <ReportSection id="retrieval" label="Retrieval" title="历史相似事件">
               <div className="similar-list">
-                {event.similarEvents.map((item) => (
-                  <p key={item}>{item}</p>
-                ))}
+                {event.similarEvents.length ? (
+                  event.similarEvents.map((item, index) => {
+                    const similarEvent = normalizeSimilarEventItem(item, index);
+                    return (
+                      <article className="similar-event-item" key={similarEvent.key}>
+                        <div>
+                          <b>{similarEvent.title}</b>
+                          {similarEvent.similarityLabel && <span>{similarEvent.similarityLabel}</span>}
+                        </div>
+                        {similarEvent.reason && <p>{similarEvent.reason}</p>}
+                      </article>
+                    );
+                  })
+                ) : (
+                  <p className="similar-empty">暂无相似历史事件。</p>
+                )}
               </div>
             </ReportSection>
 
             <ReportSection id="advice" label="Advice" title="处置建议">
-              <p className="report-paragraph">{event.advice}</p>
+              {event.adviceItems?.length ? (
+                <div className="advice-grid">
+                  {event.adviceItems.map((item) => (
+                    <article className="advice-item" key={item.label}>
+                      <span>{item.label}</span>
+                      <p>{item.text}</p>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <p className="report-paragraph">{event.advice}</p>
+              )}
               <div className="keyword-list compact">
                 {event.keywords.map((keyword) => (
                   <span key={keyword}>

@@ -92,7 +92,8 @@ def save_event(
         ))
 
     # === Trend 子表（预测数据） ===
-    for day in lifecycle.get('future_trend', []):
+    future_trend = lifecycle.get("future_trend") or report.get("future_trend", [])
+    for day in future_trend:
         db.add(EventTrendDaily(
             event_id=event.event_id,
             date=day.get("date"),
