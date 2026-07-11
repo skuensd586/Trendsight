@@ -58,7 +58,7 @@ function normalizePeopleText(value) {
 }
 
 function normalizeAuthenticity(raw = {}, analytics = {}) {
-  const authenticity = raw.authenticity || analytics.authenticity || {};
+  const authenticity = raw.authenticity ?? analytics.authenticity ?? {};
   return authenticity && typeof authenticity === 'object' ? authenticity : {};
 }
 
@@ -141,7 +141,16 @@ export function normalizeEventDetail(raw = {}) {
     ...summary,
     cause: raw.cause || raw.reason || '',
     people: normalizePeopleText(raw.people || raw.subjects),
-    falseConfidence: Number(raw.falseConfidence ?? raw.false_confidence ?? raw.confidence ?? authenticity.false_confidence ?? authenticity.falseConfidence ?? 0.85),
+    falseConfidence: Number(
+      raw.falseConfidence
+        ?? raw.false_confidence
+        ?? authenticity.credibility_score
+        ?? authenticity.credibilityScore
+        ?? raw.confidence
+        ?? authenticity.false_confidence
+        ?? authenticity.falseConfidence
+        ?? 0.85,
+    ),
     duplicateRate: raw.duplicateRate || raw.duplicate_rate || normalizeDuplicateRate(authenticity.duplicate_rate ?? authenticity.duplicateRate ?? 0),
     platforms: platformData.map((item) => ({
       name: item.name || item.platform_name || item.platform || '',
