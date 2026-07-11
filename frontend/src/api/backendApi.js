@@ -55,7 +55,12 @@ function toBackendEventId(eventId) {
   const numeric = Number(eventId);
   if (Number.isInteger(numeric) && numeric > 0) return String(numeric);
 
-  return '0';
+  const text = String(eventId || '1');
+  let hash = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = (hash * 31 + text.charCodeAt(index)) % 2147483647;
+  }
+  return String(hash || 1);
 }
 
 export const backendApi = {
@@ -96,14 +101,13 @@ export const backendApi = {
   },
 
   async getEventDetail(eventId) {
-    const backendEventId = toBackendEventId(eventId);
     const [base, trend, sentiment, platform, keywords, lifecycle] = await Promise.all([
-      request(`/api/events/${backendEventId}`),
-      optionalRequest(`/api/events/${backendEventId}/trend`),
-      optionalRequest(`/api/events/${backendEventId}/sentiment`),
-      optionalRequest(`/api/events/${backendEventId}/platform`),
-      optionalRequest(`/api/events/${backendEventId}/keywords`),
-      optionalRequest(`/api/events/${backendEventId}/lifecycle`),
+      request(`/api/events/${eventId}`),
+      optionalRequest(`/api/events/${eventId}/trend`),
+      optionalRequest(`/api/events/${eventId}/sentiment`),
+      optionalRequest(`/api/events/${eventId}/platform`),
+      optionalRequest(`/api/events/${eventId}/keywords`),
+      optionalRequest(`/api/events/${eventId}/lifecycle`),
     ]);
 
     return normalizeEventDetail({
