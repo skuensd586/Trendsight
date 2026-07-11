@@ -6,7 +6,7 @@ import EChart from '../components/EChart.jsx';
 import QAPanel from '../components/QAPanel.jsx';
 import SentimentBar from '../components/SentimentBar.jsx';
 import WordCloud from '../components/WordCloud.jsx';
-import { api } from '../api/index.js';
+import { api, isBackendMode } from '../api/index.js';
 import { events } from '../data/events.js';
 import { clusterPoints, credibilityFactors, propagationSankey } from '../data/mockAnalytics.js';
 
@@ -34,6 +34,52 @@ const riskClass = {
   中: 'risk-mid',
   低: 'risk-low',
 };
+const emptyTrend = [
+  { time: '00:00', value: 0 },
+  { time: '04:00', value: 0 },
+  { time: '08:00', value: 0 },
+  { time: '12:00', value: 0 },
+  { time: '16:00', value: 0 },
+  { time: '20:00', value: 0 },
+];
+const emptyWords = [['暂无关键词', 1]];
+const emptyPlatforms = [{ name: '暂无数据', value: 0 }];
+
+function createEmptyDetailEvent(id = '') {
+  return {
+    id: String(id || ''),
+    title: '事件详情加载中',
+    category: '未分类',
+    time: '',
+    location: '未标注地区',
+    cause: '暂无后端详情数据',
+    people: '暂无',
+    summary: '正在加载后端事件详情。',
+    heat: 0,
+    risk: '中',
+    stage: '成长期',
+    falseConfidence: 0,
+    duplicateRate: '0%',
+    reportCount: 0,
+    sentiment: { positive: 0, neutral: 100, negative: 0 },
+    platforms: emptyPlatforms,
+    trend: emptyTrend,
+    words: emptyWords,
+    keywords: ['暂无关键词'],
+    similarEvents: [],
+    pathNodes: [{ name: '暂无传播节点', category: 3, symbolSize: 34 }],
+    pathLinks: [],
+    qaSeed: '',
+    advice: '暂无处置建议。',
+    geoDiscussion: [],
+  };
+}
+
+function resolveFallbackEvent(id) {
+  const mockEvent = events.find((item) => item.id === id);
+  if (!isBackendMode()) return mockEvent || events[0];
+  return mockEvent || createEmptyDetailEvent(id);
+}
 
 function formatCount(value) {
   if (value >= 10000) return `${(value / 10000).toFixed(1)}万`;
@@ -41,9 +87,10 @@ function formatCount(value) {
 }
 
 function buildTrendOption(event) {
-  const trendData = event.trend.map((item) => item.value);
-  const peak = event.trend.reduce((current, item) => (item.value > current.value ? item : current), event.trend[0]);
-  const keyNodes = event.trend
+  const trend = event.trend?.length ? event.trend : emptyTrend;
+  const trendData = trend.map((item) => item.value);
+  const peak = trend.reduce((current, item) => (item.value > current.value ? item : current), trend[0]);
+  const keyNodes = trend
     .filter((item) => item.node)
     .map((item) => ({
       name: item.node,
@@ -63,7 +110,7 @@ function buildTrendOption(event) {
     xAxis: {
       type: 'category',
       boundaryGap: true,
-      data: event.trend.map((item) => item.time),
+      data: trend.map((item) => item.time),
       axisLine: { lineStyle: { color: '#E2E7EF' } },
       axisLabel: { color: '#868F9E' },
     },
@@ -149,7 +196,7 @@ function formatGeoValue(value) {
 }
 
 function buildGeoHeatOption(event) {
-  const geoDiscussion = event.geoDiscussion || defaultGeoDiscussion;
+  const geoDiscussion = event.geoDiscussion?.length ? event.geoDiscussion : defaultGeoDiscussion;
   const values = geoDiscussion.map((item) => item.value);
   const max = Math.max(...values);
   const min = Math.min(...values);
@@ -450,8 +497,9 @@ function buildKeywordTreemapOption(event) {
 }
 
 function buildKeywordRankOption(event) {
-  const ranked = event.words.slice(0, 8).reverse();
-  const max = Math.max(...ranked.map(([, weight]) => weight));
+  const words = event.words?.length ? event.words : emptyWords;
+  const ranked = words.slice(0, 8).reverse();
+  const max = Math.max(...ranked.map(([, weight]) => weight), 1);
 
   return {
     tooltip: {
@@ -560,8 +608,13 @@ function buildThemeRiverOption(event) {
     { name: '路况', weight: [0.08, 0.12, 0.2, 0.24, 0.26, 0.28, 0.3] },
     { name: '通报', weight: [0.02, 0.05, 0.08, 0.18, 0.24, 0.28, 0.32] },
   ];
-  const data = event.trend.flatMap((point, index) =>
-    themes.map((theme) => [`2026/07/07 ${point.time}`, Math.max(12, Math.round(point.value * theme.weight[index])), theme.name]),
+  const trend = event.trend?.length ? event.trend : emptyTrend;
+  const data = trend.flatMap((point, index) =>
+    themes.map((theme) => {
+      const weight = theme.weight[index] ?? theme.weight[theme.weight.length - 1] ?? 0.1;
+      const time = /^\d{4}-\d{2}-\d{2}/.test(point.time) ? point.time.replace(/-/g, '/') : `2026/07/07 ${point.time || '00:00'}`;
+      return [time, Math.max(12, Math.round(point.value * weight)), theme.name];
+    }),
   );
 
   return {
@@ -632,14 +685,15 @@ function buildStageAreas(xAxis, peakIndex) {
 }
 
 function buildLifecycleOption(event) {
-  const maxTrendValue = Math.max(...event.trend.map((point) => point.value), 1);
-  const actual = event.trend.map((item) => Math.round((item.value / maxTrendValue) * 100));
+  const trend = event.trend?.length ? event.trend : emptyTrend;
+  const maxTrendValue = Math.max(...trend.map((point) => point.value), 1);
+  const actual = trend.map((item) => Math.round((item.value / maxTrendValue) * 100));
   const lastActual = actual[actual.length - 1] || 0;
   const peakIndex = actual.reduce((currentIndex, value, index) => (value > actual[currentIndex] ? index : currentIndex), 0);
-  const lastTime = event.trend[event.trend.length - 1]?.time || '18:00';
+  const lastTime = trend[trend.length - 1]?.time || '18:00';
   const futureTimes = [2, 4, 6].map((hours) => addHoursToTime(lastTime, hours));
   const forecast = buildLifecycleForecast(event.stage, lastActual);
-  const xAxis = [...event.trend.map((item) => item.time), ...futureTimes];
+  const xAxis = [...trend.map((item) => item.time), ...futureTimes];
   const forecastData = [...Array(Math.max(0, actual.length - 1)).fill(null), lastActual, ...forecast];
 
   return {
@@ -1029,11 +1083,13 @@ function buildFakeChecks(event) {
 
 export default function EventDetailPage() {
   const { id } = useParams();
-  const fallbackEvent = events.find((item) => item.id === id) || events[0];
+  const fallbackEvent = useMemo(() => resolveFallbackEvent(id), [id]);
   const [event, setEvent] = useState(fallbackEvent);
+  const [detailError, setDetailError] = useState('');
 
   useEffect(() => {
     let alive = true;
+    setDetailError('');
     setEvent(fallbackEvent);
     api
       .getEventDetail(id)
@@ -1052,8 +1108,9 @@ export default function EventDetailPage() {
           pathLinks: nextEvent.pathLinks?.length ? nextEvent.pathLinks : fallbackEvent.pathLinks,
         });
       })
-      .catch(() => {
+      .catch((error) => {
         if (!alive) return;
+        setDetailError(error.message || '事件详情加载失败');
         setEvent(fallbackEvent);
       });
     return () => {
@@ -1103,6 +1160,7 @@ export default function EventDetailPage() {
               <ArrowLeft size={16} />
               返回看板
             </Link>
+            {detailError && <p className="detail-load-error">{detailError}</p>}
             <div className="event-status-row">
               <span className={stageClass[event.stage] || 'stage-growth'}>{event.stage}</span>
               <span className={riskClass[event.risk] || 'risk-mid'}>风险 · {event.risk}</span>
