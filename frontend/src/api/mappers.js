@@ -69,7 +69,7 @@ export function normalizeEventSummary(raw = {}) {
     category: raw.category || raw.field || '未分类',
     time: toDisplayTime(raw.event_time || raw.time || raw.publish_time),
     location: raw.location || raw.area || '未标注地区',
-    summary: raw.summary || raw.description || '',
+    summary: raw.summary || raw.description || raw.analysis || '',
     heat: Number(raw.heat ?? raw.heat_index ?? 0),
     risk: riskLabelMap[raw.risk_level || raw.risk] || raw.risk_level || raw.risk || '中',
     stage: stageLabelMap[raw.stage] || raw.stage || '成长期',
@@ -91,13 +91,13 @@ export function normalizeEventDetail(raw = {}) {
   const summary = normalizeEventSummary(raw);
   const platformData = raw.platforms || raw.platform_distribution || [];
   const keywordData = raw.words || raw.keywords || [];
-  const trendData = raw.trend || [];
+  const trendData = raw.trend?.length ? raw.trend : raw.trend_daily || raw.future_trend || [];
 
   return {
     ...summary,
     cause: raw.cause || raw.reason || '',
     people: raw.people || raw.subjects || '',
-    falseConfidence: Number(raw.falseConfidence ?? raw.false_confidence ?? authenticity.false_confidence ?? 0.85),
+    falseConfidence: Number(raw.falseConfidence ?? raw.false_confidence ?? raw.confidence ?? authenticity.false_confidence ?? 0.85),
     duplicateRate: raw.duplicateRate || raw.duplicate_rate || `${authenticity.duplicate_rate ?? 0}%`,
     platforms: platformData.map((item) => ({
       name: item.name || item.platform_name || item.platform || '',
@@ -105,7 +105,7 @@ export function normalizeEventDetail(raw = {}) {
     })),
     trend: trendData.map((item) => ({
       time: toHourLabel(item.time || item.date),
-      value: Number(item.value ?? item.count ?? 0),
+      value: Number(item.value ?? item.count ?? item.predict_count ?? item.predict_heat ?? 0),
       node: item.node,
     })),
     words: normalizeKeywordWeights(keywordData),
@@ -122,7 +122,7 @@ export function normalizeEventDetail(raw = {}) {
       return [item.source, item.target];
     }),
     qaSeed: raw.qaSeed || raw.qa_seed || '',
-    advice: raw.advice || '',
+    advice: raw.advice || raw.suggestion || '',
     geoDiscussion: (analytics.geo_discussion || raw.geoDiscussion || raw.geo_discussion || []).map((item) => ({
       name: item.name,
       displayName: item.displayName || item.display_name,
