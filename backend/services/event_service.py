@@ -6,6 +6,7 @@ into the events table and its child tables (keywords, platforms, trend).
 
 from datetime import datetime
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from models.event import Event, EventKeyword, EventPlatform, EventTrendDaily
@@ -120,9 +121,15 @@ def get_events(
     if risk_level:
         query = query.filter(Event.risk_level == risk_level)
 
-    # Filter: q title search
+    # Filter: q title or keyword search
     if q:
-        query = query.filter(Event.title.like(f"%{q}%"))
+        keyword = f"%{q}%"
+        query = query.filter(
+            or_(
+                Event.title.like(keyword),
+                Event.keywords.any(EventKeyword.word.like(keyword)),
+            )
+        )
     total = query.count()
     # Sort
     if sort == 'time':
