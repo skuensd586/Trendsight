@@ -121,12 +121,13 @@ class SinaCrawler:
 
     # ────── 模式B：滚动 API（无 cookie）──────
 
-    def _fetch_channel(self, lid: int, num: int = 50) -> list[dict]:
-        """从单个频道拉取最新新闻"""
+    def _fetch_channel(self, lid: int, num: int = 50, page: int = 1) -> list[dict]:
+        """从单个频道拉取新闻（滚动 API 支持 page 翻页，每页最多 50 条）"""
         params = {
             "pageid": "153",
             "lid": str(lid),
             "num": str(min(num, 50)),
+            "page": str(page),
         }
         headers = {
             "User-Agent": random.choice(USER_AGENTS),
@@ -136,13 +137,13 @@ class SinaCrawler:
             resp = self._get_with_retry(ROLL_API_URL, headers=headers, params=params)
             payload = resp.json()
         except requests.RequestException as e:
-            log.error("频道 %s 请求失败（已重试）: %s", lid, e)
+            log.error("频道 %s（page=%s）请求失败（已重试）: %s", lid, page, e)
             return []
         result = payload.get("result", {})
         if result.get("status", {}).get("code") != 0:
             return []
         items = result.get("data", [])
-        log.info("频道 lid=%s 拉到 %d 条", lid, len(items))
+        log.info("频道 lid=%s page=%s 拉到 %d 条", lid, page, len(items))
         return items
 
     def _keyword_match(self, keyword: str, item: dict) -> bool:
@@ -159,11 +160,11 @@ class SinaCrawler:
             return True
         return False
 
-    def _search_without_cookie(self, keyword: str, size: int = 10) -> list[dict]:
-        """通过批量获取最新新闻并过滤关键词"""
+    def _search_without_cookie(self, keyword: str, size: int = 10, page: int = 1) -> list[dict]:
+        """拉取指定页的各频道新闻并过滤关键词（单页，供 search_multi_page 循环调用）"""
         all_items = []
         for lid in NEWS_CHANNELS:
-            items = self._fetch_channel(lid, num=50)
+            items = self._fetch_channel(lid, num=50, page=page)
             all_items.extend(items)
             self._sleep(multiplier=1.0)
         seen_urls = set()
@@ -188,23 +189,34 @@ class SinaCrawler:
     # ────── 统一入口 ──────
 
     def search(self, keyword: str, page: int = 1, size: int = 10) -> list[dict]:
-        """搜索入口：有 cookie 走搜索 API，否则走滚动 API"""
+        """搜索入口：有 cookie 走搜索 API，否则走滚动 API（两种模式都支持 page 翻页）"""
         if self._has_cookie:
             return self._search_with_cookie(keyword, page=page, size=size)
         else:
-            # 无 cookie 时忽略 page 参数，直接批量返回最多 size 条匹配
-            return self._search_without_cookie(keyword, size=size)
+            return self._search_without_cookie(keyword, size=size, page=page)
 
     def search_multi_page(self, keyword: str, max_pages: int = 3, size: int = 50) -> list[dict]:
-        """多页搜索"""
-        if self._has_cookie:
-            all_candidates = []
-            for page in range(1, max_pages + 1):
-                candidates = self.search(keyword, page=page, size=size)
-                if not candidates:
-                    break
-                all_candidates.extend(candidates)
-                self._sleep()
-            return all_candidates
-        else:
-            return self.search(keyword, page=1, size=size)
+        """多页搜索，两种模式都会实际翻页直到 max_pages 或提前收敛"""
+        all_candidates = []
+        seen_urls = set()
+        for page in range(1, max_pages + 1):
+            page_candidates = self.search(keyword, page=page, size=size)
+            if not page_candidates:
+                # 该页无结果：cookie 模式下通常代表搜索已翻到底
+                break
+            new_count = 0
+            for c in page_candidates:
+                url = c.get("url")
+                if not url or url in seen_urls:
+                    continue
+                seen_urls.add(url)
+                all_candidates.append(c)
+                new_count += 1
+            if new_count == 0:
+                # 无 cookie 模式下滚动 API 对 page 的支持可能不稳定，
+                # 一旦某页完全没有新增候选（说明已经在重复返回同一批数据），
+                # 提前停止，避免空转到 max_pages 才结束
+                log.info("[sina] page=%d 无新增候选，停止翻页", page)
+                break
+            self._sleep()
+        return all_candidates
