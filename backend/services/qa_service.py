@@ -50,11 +50,11 @@ def normalize_sources(value) -> dict:
 
 def build_event_context(db: Session, event_id: int | None) -> str:
     if event_id is None:
-        return "【数据说明】本次请求未提供事件 ID，后端无法查询事件详情。"
+        raise ValueError("缺少事件 ID，无法构建当前事件上下文")
 
     event = db.query(Event).filter(Event.event_id == event_id).first()
     if event is None:
-        return f"【数据说明】后端事件库未查询到 event_id={event_id} 的事件详情。请基于用户问题谨慎回答，并说明缺少事件背景。"
+        raise ValueError(f"事件不存在：event_id={event_id}")
 
     sources = normalize_sources(event.sources)
     keywords = sorted(event.keywords, key=lambda item: item.rank if item.rank is not None else 9999)
@@ -146,6 +146,8 @@ def ask_question(
     # Normalize: None, empty string, string "null" are all treated as new conversation
     if conversation_id and conversation_id.strip().lower() in ("null", ""):
         conversation_id = None
+    event_context = build_event_context(db, event_id)
+
     # 1. 获取或创建对话
     if not conversation_id:
         conversation_id = uuid.uuid4().hex
@@ -184,7 +186,6 @@ def ask_question(
     ).order_by(Message.created_at).all()
 
     # 4. 组装 OpenAI 标准 messages
-    event_context = build_event_context(db, event_id)
     messages = [{"role": "system", "content": build_system_prompt(event_context)}] + [
         {"role": msg.role, "content": msg.content}
         for msg in history
