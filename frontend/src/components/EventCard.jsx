@@ -25,7 +25,10 @@ export default function EventCard({ event, index = 0 }) {
   const navigate = useNavigate();
   const discussionCount = Math.round(event.reportCount * (event.sentiment.negative + event.heat) * 0.18);
   const isAlert = ['高', '中高'].includes(event.risk) || event.sentiment.negative >= 40;
-  const openDetail = () => navigate(`/events/${event.id}`);
+  const openDetail = () => {
+    if (!event.id) return;
+    navigate(`/events/${encodeURIComponent(event.id)}`);
+  };
 
   return (
     <article
