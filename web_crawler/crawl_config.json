@@ -9,8 +9,8 @@
         "广西辟谣",
         "六蓝水库"
       ],
-      "max_articles_per_keyword": 30,
-      "max_comments_per_article": 30,
+      "max_articles_per_keyword": 25,
+      "max_comments_per_article": 25,
       "request_interval": 1.5
     },
     "weibo": {
@@ -22,7 +22,7 @@
         "广西辟谣",
         "六蓝水库"
       ],
-      "max_articles_per_keyword": 0,
+      "max_articles_per_keyword": 30,
       "max_comments_per_article": 30,
       "request_interval": 2.0
     },
@@ -35,7 +35,7 @@
         "广西辟谣",
         "六蓝水库"
       ],
-      "max_articles_per_keyword": 25,
+      "max_articles_per_keyword": 20,
       "request_interval": 1.5
     },
     "thepaper": {
@@ -47,7 +47,7 @@
         "广西辟谣",
         "六蓝水库"
       ],
-      "max_articles_per_keyword": 25,
+      "max_articles_per_keyword": 20,
       "request_interval": 1.5
     },
     "renmin": {
@@ -59,7 +59,7 @@
         "广西辟谣",
         "六蓝水库"
       ],
-      "max_articles_per_keyword": 25,
+      "max_articles_per_keyword": 20,
       "request_interval": 1.5
     }
   },
