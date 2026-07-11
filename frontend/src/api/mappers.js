@@ -99,6 +99,67 @@ function normalizeKeywordWeights(rawKeywords = []) {
     .filter(([word]) => Boolean(word));
 }
 
+function normalizeSimilarEvents(rawSimilarEvents = []) {
+  return rawSimilarEvents
+    .map((item, index) => {
+      if (typeof item === 'string') {
+        return {
+          id: item,
+          title: item,
+          similarity: null,
+          reason: '',
+        };
+      }
+      if (!item || typeof item !== 'object') return null;
+      const title = item.title || item.event_title || item.name || '';
+      if (!title) return null;
+      const rawSimilarity = Number(item.similarity ?? item.score ?? item.similarity_score);
+      return {
+        id: String(item.event_id ?? item.id ?? `${title}-${index}`),
+        title,
+        similarity: Number.isFinite(rawSimilarity) ? rawSimilarity : null,
+        reason: item.reason || item.match_reason || item.description || '',
+      };
+    })
+    .filter(Boolean);
+}
+
+function normalizeAdvice(rawAdvice) {
+  if (!rawAdvice) {
+    return {
+      summary: '暂无处置建议。',
+      items: [],
+    };
+  }
+
+  if (typeof rawAdvice === 'string') {
+    return {
+      summary: rawAdvice,
+      items: [],
+    };
+  }
+
+  if (typeof rawAdvice !== 'object') {
+    return {
+      summary: String(rawAdvice),
+      items: [],
+    };
+  }
+
+  const items = [
+    ['风险评估', rawAdvice.risk_assessment ?? rawAdvice.riskAssessment],
+    ['信息核验', rawAdvice.verification],
+    ['响应策略', rawAdvice.response_strategy ?? rawAdvice.responseStrategy],
+  ]
+    .map(([label, text]) => ({ label, text: String(text || '').trim() }))
+    .filter((item) => item.text);
+
+  return {
+    summary: items.length ? items.map((item) => `${item.label}：${item.text}`).join(' ') : '暂无处置建议。',
+    items,
+  };
+}
+
 function normalizePercent(value) {
   const number = Number(value ?? 0);
   if (!Number.isFinite(number)) return 0;
@@ -136,6 +197,7 @@ export function normalizeEventDetail(raw = {}) {
   const platformData = raw.platforms || raw.platform_distribution || [];
   const keywordData = raw.words || raw.keywords || [];
   const trendData = pickTrendData(raw);
+  const advice = normalizeAdvice(raw.advice || raw.suggestion);
 
   return {
     ...summary,
@@ -163,9 +225,7 @@ export function normalizeEventDetail(raw = {}) {
       node: item.node,
     })),
     words: normalizeKeywordWeights(keywordData),
-    similarEvents: (analytics.similar_events || raw.similarEvents || raw.similar_events || []).map((item) =>
-      typeof item === 'string' ? item : item.title,
-    ),
+    similarEvents: normalizeSimilarEvents(analytics.similar_events || raw.similarEvents || raw.similar_events || []),
     pathNodes: (raw.pathNodes || raw.path_nodes || traceability.nodes || []).map((item) => ({
       name: item.name,
       category: Number(item.category ?? 0),
@@ -176,7 +236,8 @@ export function normalizeEventDetail(raw = {}) {
       return [item.source, item.target];
     }),
     qaSeed: raw.qaSeed || raw.qa_seed || '',
-    advice: raw.advice || raw.suggestion || '',
+    advice: advice.summary,
+    adviceItems: advice.items,
     geoDiscussion: (analytics.geo_discussion || raw.geoDiscussion || raw.geo_discussion || []).map((item) => ({
       name: item.name,
       displayName: item.displayName || item.display_name,
@@ -185,6 +246,9 @@ export function normalizeEventDetail(raw = {}) {
       value: Number(item.value ?? 0),
     })),
     authenticity,
+    authenticityLevel: raw.authenticity_level || raw.authenticityLevel || authenticity.level || '',
+    authenticityLabel: raw.authenticity_label || raw.authenticityLabel || authenticity.label || '',
+    authenticityDescription: raw.authenticity_description || raw.authenticityDescription || authenticity.description || '',
     lifecycle: {
       ...lifecycle,
       stage: stageLabelMap[lifecycle.stage] || lifecycle.stage,
