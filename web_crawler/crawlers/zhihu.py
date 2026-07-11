@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 知乎爬虫。
 
@@ -350,7 +350,7 @@ class ZhihuCrawler:
                     "user_id": str(author.get("id", "")),
                     "publish_time": _parse_zhihu_time(item.get("created_time")),
                     "likes_count": item.get("vote_count", 0),
-                    "commenter_ip": item.get("ip_info", "") or "",
+                    "commenter_ip": item.get("address_text", "") or "",
                     "source_url": f"https://www.zhihu.com/answer/{answer_id}/comment/{item.get('id')}",
                 })
 

@@ -198,7 +198,7 @@
  
  ## 启动方式
  ```bash
- pip install -r requirements.txt
+ pip install -r docs/requirements.txt
  cp .env.example .env
  mysql -u root -p public_opinion_system < docs/init.sql
  python orchestrator.py "关键词" --platform sina --dry-run   # 测试模式
