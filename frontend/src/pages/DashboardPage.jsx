@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, DatabaseZap, Search, ShieldAlert, TrendingUp } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, DatabaseZap, Search, TrendingUp } from 'lucide-react';
 import AppShell from '../components/AppShell.jsx';
 import EventCard from '../components/EventCard.jsx';
 import { api } from '../api/index.js';
@@ -39,9 +39,6 @@ export default function DashboardPage() {
 
   const metrics = useMemo(() => {
     const highRiskCount = eventItems.filter((event) => ['高', '中高'].includes(event.risk)).length;
-    const avgNegative = eventItems.length
-      ? Math.round(eventItems.reduce((sum, event) => sum + event.sentiment.negative, 0) / eventItems.length)
-      : 0;
     return [
       {
         title: '实时监测事件',
@@ -58,14 +55,6 @@ export default function DashboardPage() {
         delta: `+${highRiskCount}`,
         icon: AlertTriangle,
         tone: 'red',
-      },
-      {
-        title: '全网负面占比',
-        value: `${avgNegative}%`,
-        note: '较昨日上升',
-        delta: '+6%',
-        icon: ShieldAlert,
-        tone: 'orange',
       },
       {
         title: '接入采集源',
@@ -139,7 +128,6 @@ export default function DashboardPage() {
 
   const insight = useMemo(() => {
     const highRiskEvents = [...eventItems].filter((event) => ['高', '中高'].includes(event.risk)).sort((a, b) => b.heat - a.heat);
-    const risingNegative = [...eventItems].sort((a, b) => b.sentiment.negative - a.sentiment.negative);
     const keywordRank = eventItems
       .flatMap((event) => event.keywords)
       .reduce((acc, keyword) => {
@@ -152,7 +140,6 @@ export default function DashboardPage() {
       .map(([keyword]) => keyword);
     return {
       highRiskEvents: highRiskEvents.slice(0, 3),
-      risingNegative: risingNegative.slice(0, 3),
       hotKeywords,
       normalSources: sourceStatus.normal,
       limitedSources: sourceStatus.limited,
@@ -296,14 +283,6 @@ export default function DashboardPage() {
             </div>
           </InsightBlock>
 
-          <InsightBlock title="负面上升关注">
-            {insight.risingNegative.map((event) => (
-              <Link to={`/events/${event.id}`} className="insight-event warning" key={event.id}>
-                <span>{event.title}</span>
-                <b>负面 {event.sentiment.negative}%</b>
-              </Link>
-            ))}
-          </InsightBlock>
         </aside>
       </section>
     </AppShell>
