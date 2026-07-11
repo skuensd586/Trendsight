@@ -8,7 +8,7 @@ import SentimentBar from '../components/SentimentBar.jsx';
 import WordCloud from '../components/WordCloud.jsx';
 import { api, isBackendMode } from '../api/index.js';
 import { events } from '../data/events.js';
-import { clusterPoints, credibilityFactors, propagationSankey } from '../data/mockAnalytics.js';
+import { clusterPoints, propagationSankey } from '../data/mockAnalytics.js';
 
 const chartColors = ['#469B78', '#4E74BD', '#C93F45', '#D4783A', '#7962B3'];
 const defaultGeoDiscussion = [
@@ -996,38 +996,6 @@ function buildSankeyOption() {
   };
 }
 
-function buildCredibilityOption() {
-  return {
-    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-    grid: { top: 14, right: 32, bottom: 12, left: 108 },
-    xAxis: {
-      type: 'value',
-      max: 100,
-      axisLabel: { formatter: '{value}%', color: '#868F9E' },
-      splitLine: { lineStyle: { color: '#E8EEF3' } },
-    },
-    yAxis: {
-      type: 'category',
-      data: credibilityFactors.map((item) => item.name),
-      axisLabel: { color: '#444A56', fontWeight: 760 },
-      axisLine: { show: false },
-      axisTick: { show: false },
-    },
-    series: [
-      {
-        type: 'bar',
-        data: credibilityFactors.map((item) => item.value),
-        barWidth: 14,
-        label: { show: true, position: 'right', formatter: '{c}%', color: '#444A56', fontWeight: 850 },
-        itemStyle: {
-          borderRadius: [0, 8, 8, 0],
-          color: '#469B78',
-        },
-      },
-    ],
-  };
-}
-
 function buildPlatformRoseOption(event) {
   return {
     color: ['#2A3F54', '#366FB8', '#3A9477', '#D4783A', '#7962B3'],
@@ -1060,25 +1028,65 @@ function buildPlatformRoseOption(event) {
   };
 }
 
-function buildFakeChecks(event) {
-  const confidence = Math.round(event.falseConfidence * 100);
-  return [
-    {
-      tone: 'ok',
-      title: '官方信源已交叉核实',
-      desc: `${event.people.split('、').slice(1, 3).join('、') || '权威主体'}相关信息与公开通报一致。`,
-    },
-    {
-      tone: 'ok',
-      title: '传播文本重复率可控',
-      desc: `去重后重复率为 ${event.duplicateRate}，未形成异常刷屏链路。`,
-    },
-    {
-      tone: confidence >= 85 ? 'ok' : 'warn',
-      title: confidence >= 85 ? '真实性置信度较高' : '存在待核验内容',
-      desc: confidence >= 85 ? '核心事实稳定，可进入持续跟踪。' : '部分高传播内容建议继续人工复核。',
-    },
-  ];
+function normalizeOfficialSourceRatio(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(value);
+  if (!Number.isFinite(number)) return null;
+  return Math.max(0, Math.min(100, number > 0 && number <= 1 ? Math.round(number * 100) : Math.round(number)));
+}
+
+function authenticityTone(ratio) {
+  if (ratio === null) return 'pending';
+  if (ratio >= 60) return 'ok';
+  if (ratio >= 20) return 'warn';
+  return 'danger';
+}
+
+function buildAuthenticityTopics(event) {
+  const authenticity = event.authenticity || {};
+  const rawTopics = authenticity.topics || authenticity.subtopics || authenticity.checks || authenticity.items || [];
+  const topics = Array.isArray(rawTopics) ? rawTopics : [];
+
+  if (!topics.length) {
+    return [
+      {
+        topic: '六蓝水库附近村庄受灾',
+        officialRatio: 62,
+        tone: 'ok',
+        verdict: '来源多元，已有官方和主流媒体信源交叉覆盖。',
+      },
+      {
+        topic: '水库系豆腐渣工程',
+        officialRatio: 0,
+        tone: 'warn',
+        verdict: '仅见社交媒体传播，暂未发现官方信源支撑。',
+      },
+      {
+        topic: '动物园锁死猛兽',
+        officialRatio: 15,
+        tone: 'warn',
+        verdict: '存在争议回应，但权威来源覆盖不足，建议继续核验。',
+      },
+      {
+        topic: '辟谣：相关不实说法',
+        officialRatio: 85,
+        tone: 'info',
+        verdict: '辟谣性质明确，官方信源覆盖较高，可作为低风险线索处理。',
+      },
+    ];
+  }
+
+  return topics.map((item, index) => {
+    const ratio = normalizeOfficialSourceRatio(
+      item.official_source_ratio ?? item.officialSourceRatio ?? item.official_ratio ?? item.source_ratio ?? item.ratio,
+    );
+    return {
+      topic: item.topic || item.title || item.name || `子议题 ${index + 1}`,
+      officialRatio: ratio,
+      tone: item.tone || authenticityTone(ratio),
+      verdict: item.evaluation || item.verdict || item.summary || item.comment || '该子议题暂未返回核验评价。',
+    };
+  });
 }
 
 export default function EventDetailPage() {
@@ -1124,10 +1132,9 @@ export default function EventDetailPage() {
   const themeRiverOption = useMemo(() => buildThemeRiverOption(event), [event]);
   const lifecycleOption = useMemo(() => buildLifecycleOption(event), [event]);
   const sankeyOption = useMemo(() => buildSankeyOption(), []);
-  const credibilityOption = useMemo(() => buildCredibilityOption(), []);
   const geoHeatOption = useMemo(() => buildGeoHeatOption(event), [event]);
   const traceForceOption = useMemo(() => buildTraceForceOption(event), [event]);
-  const fakeChecks = useMemo(() => buildFakeChecks(event), [event]);
+  const authenticityTopics = useMemo(() => buildAuthenticityTopics(event), [event]);
   const discussionCount = Math.round(event.reportCount * (event.sentiment.negative + event.heat) * 0.18);
 
   const exportReport = () => {
@@ -1267,24 +1274,20 @@ export default function EventDetailPage() {
           </ReportSection>
 
           <ReportSection id="authenticity" label="Authenticity" title="虚假文本检测">
-            <div className="fake-detection-grid">
-              <div className="confidence-gauge">
-                <strong>{Math.round(event.falseConfidence * 100)}%</strong>
-                <span>高度可信</span>
-              </div>
-              <div className="fake-check-list">
-                {fakeChecks.map((item) => (
-                  <div className={item.tone} key={item.title}>
-                    <ShieldCheck size={18} />
-                    <p>
-                      <b>{item.title}</b>
-                      <span>{item.desc}</span>
-                    </p>
+            <div className="auth-topic-list">
+              {authenticityTopics.map((item) => (
+                <article className={`auth-topic-card ${item.tone}`} key={item.topic}>
+                  <div className="auth-topic-head">
+                    <span>{item.topic}</span>
+                    <b>{item.officialRatio === null ? '官方来源待接入' : `官方来源 ${item.officialRatio}%`}</b>
                   </div>
-                ))}
-              </div>
+                  <div className="official-source-meter" aria-label={`${item.topic} 官方信源占比`}>
+                    <span style={{ width: `${item.officialRatio ?? 0}%` }} />
+                  </div>
+                  <p>{item.verdict}</p>
+                </article>
+              ))}
             </div>
-            <EChart option={credibilityOption} className="credibility-bar-chart" />
           </ReportSection>
 
           <section className="analysis-split bottom">

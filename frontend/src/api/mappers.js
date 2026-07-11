@@ -35,6 +35,50 @@ function toHourLabel(value) {
   return match ? match[1] : text;
 }
 
+function toTrendLabel(value) {
+  if (!value) return '';
+  const text = String(value).replace('T', ' ');
+  const timeMatch = text.match(/(\d{2}:\d{2})/);
+  if (timeMatch) return timeMatch[1];
+  const dateMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return dateMatch ? `${dateMatch[2]}-${dateMatch[3]}` : text;
+}
+
+function normalizePeopleText(value) {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) return value.filter(Boolean).join('、');
+  if (typeof value === 'object') {
+    return Object.values(value)
+      .flatMap((item) => (Array.isArray(item) ? item : [item]))
+      .filter((item) => typeof item === 'string' && item)
+      .join('、');
+  }
+  return String(value);
+}
+
+function normalizeAuthenticity(raw = {}, analytics = {}) {
+  const authenticity = raw.authenticity || analytics.authenticity || {};
+  return authenticity && typeof authenticity === 'object' ? authenticity : {};
+}
+
+function normalizeDuplicateRate(value) {
+  const normalized = normalizePercent(value);
+  return `${normalized}%`;
+}
+
+function pickTrendData(raw = {}) {
+  if (raw.trend_daily?.length) return raw.trend_daily;
+  if (raw.trend?.length && raw.future_trend?.length) return [...raw.trend, ...raw.future_trend];
+  return raw.trend || raw.future_trend || [];
+}
+
+function normalizeTrendValue(item = {}) {
+  const isPredicted = Number(item.is_predicted ?? item.isPredicted ?? 0) === 1;
+  if (isPredicted) return Number(item.predict_count ?? item.predict_heat ?? item.value ?? item.count ?? 0);
+  return Number(item.value ?? item.count ?? item.predict_count ?? item.predict_heat ?? 0);
+}
+
 function normalizeKeywordLabels(rawKeywords = []) {
   return rawKeywords
     .map((item) => {
@@ -85,27 +129,28 @@ export function normalizeEventSummary(raw = {}) {
 
 export function normalizeEventDetail(raw = {}) {
   const analytics = raw.analytics || {};
-  const authenticity = analytics.authenticity || {};
+  const authenticity = normalizeAuthenticity(raw, analytics);
   const traceability = analytics.traceability || {};
   const lifecycle = raw.lifecycle || {};
   const summary = normalizeEventSummary(raw);
   const platformData = raw.platforms || raw.platform_distribution || [];
   const keywordData = raw.words || raw.keywords || [];
-  const trendData = raw.trend?.length ? raw.trend : raw.trend_daily || raw.future_trend || [];
+  const trendData = pickTrendData(raw);
 
   return {
     ...summary,
     cause: raw.cause || raw.reason || '',
-    people: raw.people || raw.subjects || '',
-    falseConfidence: Number(raw.falseConfidence ?? raw.false_confidence ?? raw.confidence ?? authenticity.false_confidence ?? 0.85),
-    duplicateRate: raw.duplicateRate || raw.duplicate_rate || `${authenticity.duplicate_rate ?? 0}%`,
+    people: normalizePeopleText(raw.people || raw.subjects),
+    falseConfidence: Number(raw.falseConfidence ?? raw.false_confidence ?? raw.confidence ?? authenticity.false_confidence ?? authenticity.falseConfidence ?? 0.85),
+    duplicateRate: raw.duplicateRate || raw.duplicate_rate || normalizeDuplicateRate(authenticity.duplicate_rate ?? authenticity.duplicateRate ?? 0),
     platforms: platformData.map((item) => ({
       name: item.name || item.platform_name || item.platform || '',
       value: normalizePercent(item.value ?? item.ratio),
     })),
     trend: trendData.map((item) => ({
-      time: toHourLabel(item.time || item.date),
-      value: Number(item.value ?? item.count ?? item.predict_count ?? item.predict_heat ?? 0),
+      time: toTrendLabel(item.time || item.date),
+      value: normalizeTrendValue(item),
+      predicted: Number(item.is_predicted ?? item.isPredicted ?? 0) === 1,
       node: item.node,
     })),
     words: normalizeKeywordWeights(keywordData),
@@ -130,6 +175,7 @@ export function normalizeEventDetail(raw = {}) {
       lat: Number(item.lat),
       value: Number(item.value ?? 0),
     })),
+    authenticity,
     lifecycle: {
       ...lifecycle,
       stage: stageLabelMap[lifecycle.stage] || lifecycle.stage,

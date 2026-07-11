@@ -1619,7 +1619,7 @@ h3 {
 
 .metric-overview {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
   margin-bottom: 22px;
 }
@@ -2680,6 +2680,79 @@ h3 {
   grid-template-columns: 220px minmax(0, 1fr);
   gap: 24px;
   align-items: center;
+}
+
+.auth-topic-card p {
+  color: var(--subtle);
+  font-weight: 740;
+}
+
+.auth-topic-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.auth-topic-card {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-height: 150px;
+  padding: 14px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.auth-topic-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.auth-topic-head span {
+  color: var(--ink);
+  font-weight: 850;
+}
+
+.auth-topic-head b {
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.official-source-meter {
+  height: 9px;
+  overflow: hidden;
+  background: #edf2f7;
+  border-radius: 999px;
+}
+
+.official-source-meter span {
+  display: block;
+  height: 100%;
+  background: var(--green);
+  border-radius: inherit;
+}
+
+.auth-topic-card.warn .official-source-meter span {
+  background: var(--orange);
+}
+
+.auth-topic-card.info .official-source-meter span {
+  background: var(--blue);
+}
+
+.auth-topic-card.danger .official-source-meter span {
+  background: var(--red);
+}
+
+.auth-topic-card.pending {
+  background: #f8fafc;
+}
+
+.auth-topic-card.pending .official-source-meter span {
+  background: #cbd5e1;
 }
 
 .confidence-gauge {
