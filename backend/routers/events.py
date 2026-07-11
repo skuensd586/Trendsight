@@ -102,6 +102,7 @@ class EventDetailData(BaseModel):
     trend: list[dict] = []
     future_trend: list[dict] = []
     authenticity: dict | None = None
+    duplicate_rate: float | None = None
     summary: str | None = None
     location: str | None = None
     cause: str | None = None
@@ -153,9 +154,11 @@ def list_events(
     page: int = 1,
     size: int = 20,
     sort: str = 'heat',
+    risk_level: str | None = None,
+    q: str | None = None,
     db: Session = Depends(get_db),
 ):
-    data = get_events(db, page=page, size=size, sort=sort)
+    data = get_events(db, page=page, size=size, sort=sort, risk_level=risk_level, q=q)
 
 
 @router.get("/api/events/hot", response_model=EventListResponse)
@@ -163,9 +166,11 @@ def hot_events(
     page: int = 1,
     size: int = 20,
     sort: str = 'heat',
+    risk_level: str | None = None,
+    q: str | None = None,
     db: Session = Depends(get_db),
 ):
-    data = get_events(db, page=page, size=size, sort=sort)
+    data = get_events(db, page=page, size=size, sort=sort, risk_level=risk_level, q=q)
 
 
 @router.get("/api/events/{event_id}", response_model=EventDetailResponse)

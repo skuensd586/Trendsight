@@ -111,9 +111,19 @@ def get_events(
     page: int = 1,
     size: int = 20,
     sort: str = "heat",
+    risk_level: str | None = None,
+    q: str | None = None,
 ) -> dict:
-    total = db.query(Event).count()
     query = db.query(Event)
+
+    # Filter: risk_level
+    if risk_level:
+        query = query.filter(Event.risk_level == risk_level)
+
+    # Filter: q title search
+    if q:
+        query = query.filter(Event.title.like(f"%{q}%"))
+    total = query.count()
     # Sort
     if sort == 'time':
         query = query.order_by(Event.event_time.is_(None).asc(), Event.event_time.desc())
@@ -187,6 +197,12 @@ def get_event_detail(
         .all()
     )
 
+
+    # Duplicate rate
+    rc = event.report_count or 0
+    dc = event.duplicate_count or 0
+    total_val = rc + dc
+    duplicate_rate = round(dc / total_val, 3) if total_val > 0 else 0.0
     return {
         "event_id": event.event_id,
         "title": event.title,
@@ -211,6 +227,7 @@ def get_event_detail(
         },
         "sources": event.sources,
         'authenticity': event.authenticity,
+        'duplicate_rate': duplicate_rate,
         'summary': event.summary,
         'location': event.location,
         'cause': event.cause,
