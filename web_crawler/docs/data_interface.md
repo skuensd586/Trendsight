@@ -39,6 +39,7 @@
  crawlers/
  ├── __init__.py         # 注册表: register() / get_crawler() / list_platforms()
  ├── sina.py             # @register("sina"): 新浪新闻搜索（通用新闻搜索引擎）
+ ├── thepaper.py         # @register("thepaper"): 澎湃新闻搜索（通用新闻搜索引擎）
  ├── zhihu.py            # @register("zhihu"): 知乎搜索 + 评论拉取（社交平台）
  └── weibo.py            # @register("weibo"): 微博搜索 + 评论拉取（社交平台）
  
@@ -67,6 +68,7 @@
  | 平台 | 注册名 | 注册类 | 抽取策略 |
  |------|--------|--------|---------|
  | 新浪新闻 | `sina` | SinaCrawler | `news` (NewspaperExtractor) |
+ | 澎派新闻 | `thepaper` | ThePaperCrawler | `news` (NewspaperExtractor) |
  | 微博 | `weibo` | WeiboCrawler | `weibo` (WeiboExtractor) |
  | 知乎 | `zhihu` | ZhihuCrawler | `zhihu` (ZhihuExtractor) |
  
@@ -166,7 +168,9 @@
  SINA_COOKIE=your_sina_cookie_here
  WEIBO_COOKIE=your_weibo_cookie_here
  ZHIHU_COOKIE=your_zhihu_cookie_here
- # 多账号轮换（可选）
+ THEPAPER_COOKIE=your_thepaper_cookie_here
+ # 多账号轮换，抵抗反爬
+ # SINA_COOKIE_2=your_second_weibo_cookie_here
  # WEIBO_COOKIE_2=your_second_weibo_cookie_here
  # ZHIHU_COOKIE_2=your_second_zhihu_cookie_here
  ```

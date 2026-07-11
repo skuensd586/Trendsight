@@ -8,6 +8,7 @@
 import random
 from urllib.parse import quote
 import time
+import os
 import requests
 from crawlers import register
 from utils.logger import get_logger
@@ -45,12 +46,23 @@ class SinaCrawler:
     def __init__(self, request_interval: float = 2.0, cookie: str | None = None):
         self.request_interval = request_interval
         self.session = requests.Session()
-        if cookie:
-            self._cookie_header = cookie
+        self._cooldowns = {}          # idx -> cooldown expiry timestamp
+        self._current_idx = 0         # current active account index
+
+        # 加载多账号池（主 cookie + SINA_COOKIE_2 / _3 / ...）
+        self._cookie_pool = self._load_cookie_pool(cookie)
+
+        active = self._get_active_cookie()
+        if active:
+            self._cookie_header = active
             self._has_cookie = True
+            log.info("使用 Cookie，长度=%d, 前缀=%s...", len(active), active[:20])
         else:
             self._cookie_header = None
             self._has_cookie = False
+
+        if len(self._cookie_pool) > 1:
+            log.info("多账号模式：共 %d 个账号", len(self._cookie_pool))
 
     @staticmethod
     def _parse_cookie(cookie_str: str) -> dict:
@@ -62,6 +74,58 @@ class SinaCrawler:
                 key, value = part.split("=", 1)
                 result[key.strip()] = value.strip()
         return result
+
+    # ---- 多账号池 ----
+
+    def _load_cookie_pool(self, primary: str | None) -> list[str]:
+        """从参数 + 环境变量加载多账号 cookie 池（SINA_COOKIE_2 / _3 / ...）"""
+        cookies = []
+        if primary:
+            cookies.append(primary)
+        try:
+            from dotenv import load_dotenv
+            load_dotenv()
+        except ImportError:
+            pass
+        for i in range(2, 20):
+            env_c = os.getenv(f"SINA_COOKIE_{i}")
+            if env_c and env_c not in cookies:
+                cookies.append(env_c)
+        return cookies
+
+    def _get_active_cookie(self) -> str | None:
+        """返回当前账号的完整 cookie 字符串"""
+        if self._cookie_pool and self._current_idx < len(self._cookie_pool):
+            return self._cookie_pool[self._current_idx]
+        return None
+
+    def _rotate_account(self) -> bool:
+        """切换到下一个未冷却的账号。当前账号先标记冷却 5 分钟。"""
+        if len(self._cookie_pool) <= 1:
+            return False
+
+        # 当前账号进入冷却
+        self._cooldowns[self._current_idx] = time.time() + 300
+
+        for _ in range(len(self._cookie_pool) - 1):
+            self._current_idx = (self._current_idx + 1) % len(self._cookie_pool)
+            if self._cooldowns.get(self._current_idx, 0) <= time.time():
+                self._cookie_header = self._cookie_pool[self._current_idx]
+                log.info(" -> 轮换到账号 #%d/%d", self._current_idx + 1, len(self._cookie_pool))
+                return True
+
+        # 所有账号都在冷却中
+        min_cd = min(self._cooldowns.get(i, 0) for i in range(len(self._cookie_pool)))
+        wait = max(0, min_cd - time.time())
+        log.warning("所有账号冷却中，需等待 %.0fs", wait)
+        return False
+
+    def _all_on_cooldown(self) -> bool:
+        """账号池是否全部处于冷却中（用于判断要不要临时降级到无 cookie 模式）"""
+        if not self._cookie_pool:
+            return False
+        now = time.time()
+        return all(self._cooldowns.get(i, 0) > now for i in range(len(self._cookie_pool)))
 
     def _sleep(self, multiplier: float = 1.0):
         base = self.request_interval * multiplier
@@ -78,46 +142,58 @@ class SinaCrawler:
         return resp
 
     def _search_with_cookie(self, keyword: str, page: int = 1, size: int = 10) -> list[dict]:
-        """使用微博登录态调用搜索 API"""
-        params = {
-            "q": keyword, "tp": "mix", "sort": "0",
-            "page": page, "size": size, "from": "search_result",
-        }
-        headers = {
-            "User-Agent": random.choice(USER_AGENTS),
-            "Accept": "application/json, text/plain, */*",
-            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-            "Cookie": self._cookie_header,
-            "Referer": f"https://search.sina.com.cn/search?q={quote(keyword)}&tp=mix&sort=0&page={page}&size={size}&from=search_result",
-        }
-        try:
-            resp = self._get_with_retry(SEARCH_API_URL, headers=headers, params=params)
-            payload = resp.json()
-        except requests.HTTPError as e:
-            status = getattr(e.response, "status_code", None)
-            if status == 429:
-                log.warning("cookie 可能已过期，重试后仍返回 429")
-            else:
+        """使用微博登录态调用搜索 API。
+        遇到 429（限流/cookie 疑似失效）或接口返回异常 code 时，
+        自动轮换到池中下一个未冷却的账号重试，直到成功或账号轮完一圈。
+        """
+        attempts = max(1, len(self._cookie_pool))
+        for attempt in range(attempts):
+            params = {
+                "q": keyword, "tp": "mix", "sort": "0",
+                "page": page, "size": size, "from": "search_result",
+            }
+            headers = {
+                "User-Agent": random.choice(USER_AGENTS),
+                "Accept": "application/json, text/plain, */*",
+                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                "Cookie": self._cookie_header,
+                "Referer": f"https://search.sina.com.cn/search?q={quote(keyword)}&tp=mix&sort=0&page={page}&size={size}&from=search_result",
+            }
+            try:
+                resp = self._get_with_retry(SEARCH_API_URL, headers=headers, params=params)
+                payload = resp.json()
+            except requests.HTTPError as e:
+                status = getattr(e.response, "status_code", None)
+                if status == 429:
+                    log.warning("账号 #%d 疑似 cookie 已过期（429，重试后仍失败）",
+                               self._current_idx + 1)
+                    if self._rotate_account():
+                        continue
+                    return []
                 log.error("搜索请求失败（已重试）: %s", e)
-            return []
-        except requests.RequestException as e:
-            log.error("搜索请求失败（已重试）: %s", e)
-            return []
+                return []
+            except requests.RequestException as e:
+                log.error("搜索请求失败（已重试）: %s", e)
+                return []
 
-        if payload.get("code") != 0:
-            log.warning("接口返回异常: %s", payload.get("message"))
-            return []
+            if payload.get("code") != 0:
+                log.warning("账号 #%d 接口返回异常: %s",
+                           self._current_idx + 1, payload.get("message"))
+                if self._rotate_account():
+                    continue
+                return []
 
-        items = payload.get("data", {}).get("list", []) or []
-        candidates = []
-        for item in items:
-            candidates.append({
-                "url": item.get("url"),
-                "title": item.get("title"),
-                "ctime": item.get("ctime"),
-                "media_show": item.get("media_show"),
-            })
-        return candidates
+            items = payload.get("data", {}).get("list", []) or []
+            candidates = []
+            for item in items:
+                candidates.append({
+                    "url": item.get("url"),
+                    "title": item.get("title"),
+                    "ctime": item.get("ctime"),
+                    "media_show": item.get("media_show"),
+                })
+            return candidates
+        return []
 
     # ────── 模式B：滚动 API（无 cookie）──────
 
@@ -189,9 +265,15 @@ class SinaCrawler:
     # ────── 统一入口 ──────
 
     def search(self, keyword: str, page: int = 1, size: int = 10) -> list[dict]:
-        """搜索入口：有 cookie 走搜索 API，否则走滚动 API（两种模式都支持 page 翻页）"""
+        """搜索入口：有 cookie 走搜索 API，否则走滚动 API（两种模式都支持 page 翻页）。
+        若账号池全部进入冷却（短期内都被限流/失效），临时降级到滚动 API 兜底。
+        """
         if self._has_cookie:
-            return self._search_with_cookie(keyword, page=page, size=size)
+            candidates = self._search_with_cookie(keyword, page=page, size=size)
+            if not candidates and self._all_on_cooldown():
+                log.info("[sina] 账号池全部冷却中，本次降级到滚动 API 兜底")
+                return self._search_without_cookie(keyword, size=size, page=page)
+            return candidates
         else:
             return self._search_without_cookie(keyword, size=size, page=page)
 
