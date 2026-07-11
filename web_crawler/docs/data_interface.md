@@ -201,11 +201,11 @@
  pip install -r requirements.txt
  cp .env.example .env
  mysql -u root -p public_opinion_system < docs/init.sql
- python orchestrator.py "关键词" --platform sina --dry-run
- python orchestrator.py "关键词" --platform sina
- python orchestrator.py --config
- python scheduler.py
- python scheduler.py --run-once
+ python orchestrator.py "关键词" --platform sina --dry-run   # 测试模式
+ python orchestrator.py "关键词" --platform sina  # 按关键词和平台爬取
+ python orchestrator.py --config      # 正式入库
+ python scheduler.py    # 按 crawl_config.json 的 interval 定时执行
+ python scheduler.py --run-once     # 立即执行一次
  ```
  
  ## 新平台接入指南

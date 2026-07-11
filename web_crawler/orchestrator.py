@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
 编排器：统一流水线入口。
 选择爬虫 → 搜索 → 提取正文 → 清洗 → 去重 → 入库。
@@ -129,7 +129,7 @@ def run(keyword: str,
                 log.info("  %s，跳过", reason)
                 skip += 1
                 continue
-            raw = extractor.extract(url)
+            raw = extractor.extract(url, html=candidate.get("_raw"))
             if raw is None:
                 fail += 1
                 time.sleep(_REQUEST_INTERVAL)

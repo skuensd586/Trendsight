@@ -3,6 +3,167 @@ import { Bot, SendHorizontal, Sparkles } from 'lucide-react';
 import { api, isBackendMode } from '../api/index.js';
 
 const suggestions = ['当前事件为什么升温？', '负面情绪主要来自哪里？', '下一步处置建议是什么？'];
+const markdownDividerPattern = /^(?:-{3,}|\*{3,}|_{3,})$/;
+const markdownHeadingPattern = /^(#{1,6})(?:\s+(.*?)\s*#*|\s*)$/;
+
+function normalizeMarkdownText(text) {
+  return String(text || '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/([^\n])\s+(\*\*\s*\d+[.)、]?)/g, '$1\n$2')
+    .replace(/([^\n])\s+(#{1,6}\s*)/g, '$1\n$2')
+    .replace(/([^\n])\s+((?:-{3,}|\*{3,}|_{3,})\s*)/g, '$1\n$2')
+    .replace(/([^\n])\s+(\d+[.)、]\s+)/g, '$1\n$2')
+    .replace(/([^\n])\s+([-*•]\s+)/g, '$1\n$2')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function renderInlineMarkdown(text, keyPrefix) {
+  return String(text)
+    .split(/(\*\*[^*]+\*\*|`[^`]+`)/g)
+    .filter(Boolean)
+    .map((part, index) => {
+      const key = `${keyPrefix}-${index}`;
+      if (part.startsWith('**') && part.endsWith('**')) {
+        const value = part.slice(2, -2).trim();
+        return value ? <strong key={key}>{value}</strong> : null;
+      }
+      if (part.startsWith('`') && part.endsWith('`')) {
+        return <code key={key}>{part.slice(1, -1)}</code>;
+      }
+      return <span key={key}>{part}</span>;
+    });
+}
+
+function renderMessageContent(text) {
+  const lines = normalizeMarkdownText(text).split('\n');
+  const blocks = [];
+  let paragraph = [];
+  let list = null;
+
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    const value = paragraph.join(' ');
+    blocks.push({
+      type: 'paragraph',
+      value,
+    });
+    paragraph = [];
+  };
+
+  const flushList = () => {
+    if (!list) return;
+    blocks.push(list);
+    list = null;
+  };
+
+  const pushDivider = () => {
+    if (!blocks.length || blocks[blocks.length - 1].type === 'divider') return;
+    blocks.push({ type: 'divider' });
+  };
+
+  const parseListLine = (trimmed) => {
+    const emphasizedOrderedHeading = trimmed.match(/^\*\*\s*(\d+)[.)、]\s*([^*]+?)\*\*\s*(.*)$/);
+    if (emphasizedOrderedHeading) {
+      const title = emphasizedOrderedHeading[2].trim();
+      const rest = emphasizedOrderedHeading[3].trim();
+      return { type: 'ordered-list', value: `**${title}** ${rest}`.trim() };
+    }
+
+    const emphasizedOrdered = trimmed.match(/^\*\*\s*(\d+)[.)、]?\s*\*\*\s*(.*)$/);
+    if (emphasizedOrdered) return { type: 'ordered-list', value: emphasizedOrdered[2].replace(/\s+\*\*$/, '').trim() };
+
+    const ordered = trimmed.match(/^(\d+)[.)、]\s+(.*)$/);
+    if (ordered) return { type: 'ordered-list', value: ordered[2] };
+
+    const unordered = trimmed.match(/^[-*•]\s+(.*)$/);
+    if (unordered) return { type: 'unordered-list', value: unordered[1] };
+
+    return null;
+  };
+
+  lines.forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      flushParagraph();
+      flushList();
+      return;
+    }
+
+    if (markdownDividerPattern.test(trimmed)) {
+      flushParagraph();
+      flushList();
+      pushDivider();
+      return;
+    }
+
+    const heading = trimmed.match(markdownHeadingPattern);
+    if (heading) {
+      const value = (heading[2] || '').trim();
+      flushParagraph();
+      flushList();
+      if (value) blocks.push({ type: 'heading', value });
+      return;
+    }
+
+    const listItem = parseListLine(trimmed);
+
+    if (listItem) {
+      flushParagraph();
+      if (!list || list.type !== listItem.type) {
+        flushList();
+        list = { type: listItem.type, items: [] };
+      }
+      list.items.push(listItem.value);
+      return;
+    }
+
+    flushList();
+    paragraph.push(trimmed);
+  });
+
+  flushParagraph();
+  flushList();
+
+  if (blocks[blocks.length - 1]?.type === 'divider') blocks.pop();
+
+  if (!blocks.length) return null;
+
+  return blocks.map((block, index) => {
+    if (block.type === 'paragraph') {
+      return <p key={`paragraph-${index}`}>{renderInlineMarkdown(block.value, `paragraph-${index}`)}</p>;
+    }
+    if (block.type === 'ordered-list') {
+      return (
+        <ol key={`ordered-${index}`}>
+          {block.items.map((item, itemIndex) => (
+            <li key={`ordered-${index}-${itemIndex}`}>{renderInlineMarkdown(item, `ordered-${index}-${itemIndex}`)}</li>
+          ))}
+        </ol>
+      );
+    }
+    if (block.type === 'heading') {
+      return (
+        <h3 className="message-heading" key={`heading-${index}`}>
+          {renderInlineMarkdown(block.value, `heading-${index}`)}
+        </h3>
+      );
+    }
+    if (block.type === 'divider') {
+      return <hr className="message-divider" key={`divider-${index}`} />;
+    }
+    if (block.type === 'unordered-list') {
+      return (
+        <ul key={`unordered-${index}`}>
+          {block.items.map((item, itemIndex) => (
+            <li key={`unordered-${index}-${itemIndex}`}>{renderInlineMarkdown(item, `unordered-${index}-${itemIndex}`)}</li>
+          ))}
+        </ul>
+      );
+    }
+    return null;
+  });
+}
 
 function buildAnswer(event, question) {
   if (!event) return '请选择一个事件后再提问。';
@@ -93,7 +254,7 @@ export default function QAPanel({ event, compact = false }) {
         {messages.map((message, index) => (
           <div className={`chat-message ${message.role}`} key={`${message.role}-${index}`}>
             {message.role === 'assistant' && <Bot size={17} />}
-            <p>{message.text}</p>
+            <div className="message-content">{renderMessageContent(message.text)}</div>
           </div>
         ))}
       </div>

@@ -250,7 +250,7 @@ class ZhihuExtractor:
                 api_url = f"https://www.zhihu.com/api/v4/answers/{answer_id}"
                 api_headers = self.headers.copy()
                 api_headers["Referer"] = "https://www.zhihu.com/"
-                resp = session.get(api_url, params={"include": "content"},
+                resp = session.get(api_url, params={"include": "content,author"},
                                    headers=api_headers, timeout=15)
                 resp.raise_for_status()
                 item = resp.json()

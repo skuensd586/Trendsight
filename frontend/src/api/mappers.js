@@ -55,6 +55,12 @@ function normalizeKeywordWeights(rawKeywords = []) {
     .filter(([word]) => Boolean(word));
 }
 
+function normalizePercent(value) {
+  const number = Number(value ?? 0);
+  if (!Number.isFinite(number)) return 0;
+  return number > 0 && number <= 1 ? Math.round(number * 1000) / 10 : number;
+}
+
 export function normalizeEventSummary(raw = {}) {
   const sentiment = raw.sentiment || {};
   return {
@@ -69,9 +75,9 @@ export function normalizeEventSummary(raw = {}) {
     stage: stageLabelMap[raw.stage] || raw.stage || '成长期',
     reportCount: Number(raw.report_count ?? raw.reportCount ?? raw.article_count ?? 0),
     sentiment: {
-      positive: Number(sentiment.positive ?? raw.positive ?? 0),
-      neutral: Number(sentiment.neutral ?? raw.neutral ?? 0),
-      negative: Number(sentiment.negative ?? raw.negative ?? 0),
+      positive: normalizePercent(sentiment.positive ?? raw.positive),
+      neutral: normalizePercent(sentiment.neutral ?? raw.neutral),
+      negative: normalizePercent(sentiment.negative ?? raw.negative),
     },
     keywords: normalizeKeywordLabels(raw.keywords),
   };
@@ -95,7 +101,7 @@ export function normalizeEventDetail(raw = {}) {
     duplicateRate: raw.duplicateRate || raw.duplicate_rate || `${authenticity.duplicate_rate ?? 0}%`,
     platforms: platformData.map((item) => ({
       name: item.name || item.platform_name || item.platform || '',
-      value: Number(item.value ?? item.ratio ?? 0),
+      value: normalizePercent(item.value ?? item.ratio),
     })),
     trend: trendData.map((item) => ({
       time: toHourLabel(item.time || item.date),

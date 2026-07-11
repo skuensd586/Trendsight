@@ -16,9 +16,20 @@ async function request(path, options = {}) {
       ...options.headers,
     },
   });
-  const payload = await response.json();
+  const rawPayload = await response.text();
+  let payload = {};
+  if (rawPayload) {
+    try {
+      payload = JSON.parse(rawPayload);
+    } catch (_error) {
+      payload = { detail: rawPayload };
+    }
+  }
   if (!response.ok || payload.code !== 200) {
-    throw new Error(payload.message || `Request failed: ${response.status}`);
+    const detail = Array.isArray(payload.detail)
+      ? payload.detail.map((item) => item.msg || JSON.stringify(item)).join('; ')
+      : payload.detail;
+    throw new Error(payload.message || detail || `Request failed: ${response.status}`);
   }
   return payload.data;
 }
@@ -38,6 +49,18 @@ async function optionalRequest(path) {
   } catch (_error) {
     return null;
   }
+}
+
+function toBackendEventId(eventId) {
+  const numeric = Number(eventId);
+  if (Number.isInteger(numeric) && numeric > 0) return String(numeric);
+
+  const text = String(eventId || '1');
+  let hash = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = (hash * 31 + text.charCodeAt(index)) % 2147483647;
+  }
+  return String(hash || 1);
 }
 
 export const backendApi = {
@@ -60,7 +83,12 @@ export const backendApi = {
   },
 
   async getHotEvents(params) {
-    const data = await request(`/api/events/hot${toQuery(params)}`);
+    const queryParams = {
+      ...params,
+      size: params?.page_size ?? params?.size,
+    };
+    delete queryParams.page_size;
+    const data = await request(`/api/events/hot${toQuery(queryParams)}`);
     return {
       items: (data.items || data.events || []).map(normalizeEventSummary),
       pagination: data.pagination || {
@@ -93,7 +121,7 @@ export const backendApi = {
   },
 
   async askEventQuestion({ eventId, conversationId, question }) {
-    return request(`/api/events/${eventId}/qa`, {
+    return request(`/api/events/${toBackendEventId(eventId)}/qa`, {
       method: 'POST',
       body: JSON.stringify({
         conversation_id: conversationId || '',

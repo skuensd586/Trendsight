@@ -48,23 +48,26 @@ DEFAULT_INTERVAL = 4.0  # 知乎风控更敏感，间隔比微博大
 
 
 def _classify_credibility(author: dict) -> str:
-    """根据知乎用户信息粗分认证类型。
-    返回：官方机构 / 认证个人 / 认证机构 / 普通用户
+    """根据知乎用户信息粗分认证类型（对齐 DB 约束）。
+    返回：官方平台 / 头部认证个人 / 认证个人 / 认证机构 / 普通用户
     """
     if not author:
         return "普通用户"
     badge = author.get("badge") or []
     badge_types = {b.get("type") for b in badge if isinstance(b, dict)}
-    if "identity" in badge_types or "best_answerer" in badge_types:
+    # 头部认证个人：优秀答主、高盐值、海盐计划核心创作者等平台级认证
+    if badge_types & {"best_answerer", "high_salt", "sea_salt_creator"}:
+        return "头部认证个人"
+    # 认证个人：学历认证 / 职业资格认证 / 在职认证等身份类 badge
+    if "identity" in badge_types:
         return "认证个人"
     headline = author.get("headline", "") or ""
+    # 根据简介关键词推断知乎官方号（无专有 badge 时的折中方案）
     if any(k in headline for k in ("官方", "客服", "小编")):
-        return "官方机构"
+        return "官方平台"
     if author.get("type") == "org":
         return "认证机构"
     return "普通用户"
-
-
 def _parse_zhihu_time(ts) -> datetime | None:
     """知乎时间戳为秒级 int，转 YYYY-MM-DD HH:mm:ss"""
     try:
@@ -211,6 +214,7 @@ class ZhihuCrawler:
                     "question_id": str(q.get("id", "")),
                     "url": f"https://www.zhihu.com/question/{q.get('id')}/answer/{obj.get('id')}",
                     "verification_type": _classify_credibility(obj.get("author", {})),
+                     "_raw": obj,
                 })
             elif obj_type == "article":
                 candidates.append({
@@ -218,6 +222,7 @@ class ZhihuCrawler:
                     "id": str(obj.get("id")),
                     "url": f"https://zhuanlan.zhihu.com/p/{obj.get('id')}",
                     "verification_type": _classify_credibility(obj.get("author", {})),
+                     "_raw": obj,
                 })
             elif obj_type == "question":
                 candidates.append({
@@ -261,9 +266,11 @@ class ZhihuCrawler:
             all_candidates.extend(new)
             self._sleep()
 
-        if not all_candidates and self._rotate_account():
-            log.info("轮换账号后重试搜索...")
+        while not all_candidates and self._rotate_account():
+            log.info("轮换到账号 #%d/%d，重试搜索...",
+                     self._current_idx + 1, len(self._cookie_pool))
             self._sleep(1.5)
+            account_candidates = []
             for page in range(1, max_pages + 1):
                 candidates = self.search(keyword, page=page)
                 if not candidates:
@@ -272,8 +279,9 @@ class ZhihuCrawler:
                 if not new:
                     break
                 seen.update(c["id"] for c in new)
-                all_candidates.extend(new)
+                account_candidates.extend(new)
                 self._sleep()
+            all_candidates = account_candidates
 
         return self._expand_questions(all_candidates)
 
@@ -341,7 +349,7 @@ class ZhihuCrawler:
                     "author": author.get("name", ""),
                     "user_id": str(author.get("id", "")),
                     "publish_time": _parse_zhihu_time(item.get("created_time")),
-                    "likes_count": item.get("like_count", 0),
+                    "likes_count": item.get("vote_count", 0),
                     "commenter_ip": item.get("ip_info", "") or "",
                     "source_url": f"https://www.zhihu.com/answer/{answer_id}/comment/{item.get('id')}",
                 })

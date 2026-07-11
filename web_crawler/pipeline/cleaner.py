@@ -83,6 +83,7 @@ def build_document(raw: dict, candidate: dict, platform: str = "新浪新闻", p
     author = (
         ", ".join(raw.get("authors", []))
         or candidate.get("media_show")
+        or (candidate.get("_raw") or {}).get("author", {}).get("name")
         or None
     )
     url_hash = hashlib.md5(candidate["url"].encode()).hexdigest()[:8]
@@ -98,6 +99,6 @@ def build_document(raw: dict, candidate: dict, platform: str = "新浪新闻", p
         "crawl_time": datetime.now(),
         "content_hash": str(Simhash(content).value),
         "clean_status": "raw",
-        "verification_type": raw.get("verification_type") or candidate.get("verification_type"),
+         "verification_type": candidate.get("verification_type") or raw.get("verification_type"),
         "event_id": None,
     }
