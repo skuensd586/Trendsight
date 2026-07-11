@@ -146,6 +146,19 @@ def get_events(
                 "stage": e.stage,
                 "event_time": e.event_time.isoformat() if e.event_time else None,
                 "created_at": e.created_at.isoformat() if e.created_at else None,
+                "summary": e.summary,
+                "location": e.location,
+                "analysis": e.analysis,
+                "positive": e.positive,
+                "neutral": e.neutral,
+                "negative": e.negative,
+                "keywords": [
+                    keyword.word
+                    for keyword in sorted(
+                        e.keywords,
+                        key=lambda item: item.rank if item.rank is not None else 9999,
+                    )[:8]
+                ],
             }
             for e in items
         ],

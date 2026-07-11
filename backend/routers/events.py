@@ -31,6 +31,13 @@ class EventListItem(BaseModel):
     stage: str | None = None
     event_time: str | None = None
     created_at: str | None = None
+    summary: str | None = None
+    location: str | None = None
+    analysis: str | None = None
+    positive: float | None = None
+    neutral: float | None = None
+    negative: float | None = None
+    keywords: list[str] = []
 
 class PaginationData(BaseModel):
     page: int
@@ -159,6 +166,7 @@ def list_events(
     db: Session = Depends(get_db),
 ):
     data = get_events(db, page=page, size=size, sort=sort, risk_level=risk_level, q=q)
+    return EventListResponse(data=data)
 
 
 @router.get("/api/events/hot", response_model=EventListResponse)
@@ -171,6 +179,7 @@ def hot_events(
     db: Session = Depends(get_db),
 ):
     data = get_events(db, page=page, size=size, sort=sort, risk_level=risk_level, q=q)
+    return EventListResponse(data=data)
 
 
 @router.get("/api/events/{event_id}", response_model=EventDetailResponse)
