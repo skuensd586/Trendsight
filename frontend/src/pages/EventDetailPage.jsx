@@ -1042,33 +1042,91 @@ function authenticityTone(ratio) {
   return 'danger';
 }
 
-function buildAuthenticityTopics(event) {
+function plainUserTone(ratio) {
+  if (ratio === null) return 'pending';
+  if (ratio <= 30) return 'ok';
+  if (ratio <= 60) return 'warn';
+  return 'danger';
+}
+
+function buildAuthenticityRatioChecks(authenticity = {}) {
+  const ratios = [
+    {
+      key: 'official_ratio',
+      aliases: ['official_ratio', 'officialRatio'],
+      topic: '官方来源比例',
+      label: '官方来源',
+      tone: authenticityTone,
+      verdict: (ratio) => `官方来源占比 ${ratio}%，用于判断该事件是否已有权威信源覆盖。`,
+    },
+    {
+      key: 'verified_ratio',
+      aliases: ['verified_ratio', 'verifiedRatio'],
+      topic: '已认证来源比例',
+      label: '已认证来源',
+      tone: authenticityTone,
+      verdict: (ratio) => `已认证来源占比 ${ratio}%，用于衡量可追溯账号或机构来源的覆盖程度。`,
+    },
+    {
+      key: 'plain_user_ratio',
+      aliases: ['plain_user_ratio', 'plainUserRatio'],
+      topic: '普通用户比例',
+      label: '普通用户',
+      tone: plainUserTone,
+      verdict: (ratio) => `普通用户来源占比 ${ratio}%，占比越高越需要继续交叉核验。`,
+    },
+  ];
+
+  return ratios
+    .map((item) => {
+      const sourceValue = item.aliases.map((key) => authenticity[key]).find((value) => value !== undefined && value !== null && value !== '');
+      const ratio = normalizeOfficialSourceRatio(sourceValue);
+      if (ratio === null) return null;
+      return {
+        topic: item.topic,
+        label: item.label,
+        officialRatio: ratio,
+        tone: item.tone(ratio),
+        verdict: item.verdict(ratio),
+      };
+    })
+    .filter(Boolean);
+}
+
+function buildFakeChecks(event) {
   const authenticity = event.authenticity || {};
   const rawTopics = authenticity.topics || authenticity.subtopics || authenticity.checks || authenticity.items || [];
   const topics = Array.isArray(rawTopics) ? rawTopics : [];
+  const ratioChecks = buildAuthenticityRatioChecks(authenticity);
+
+  if (ratioChecks.length) return ratioChecks;
 
   if (!topics.length) {
     return [
       {
         topic: '六蓝水库附近村庄受灾',
+        label: '官方来源',
         officialRatio: 62,
         tone: 'ok',
         verdict: '来源多元，已有官方和主流媒体信源交叉覆盖。',
       },
       {
         topic: '水库系豆腐渣工程',
+        label: '官方来源',
         officialRatio: 0,
         tone: 'warn',
         verdict: '仅见社交媒体传播，暂未发现官方信源支撑。',
       },
       {
         topic: '动物园锁死猛兽',
+        label: '官方来源',
         officialRatio: 15,
         tone: 'warn',
         verdict: '存在争议回应，但权威来源覆盖不足，建议继续核验。',
       },
       {
         topic: '辟谣：相关不实说法',
+        label: '官方来源',
         officialRatio: 85,
         tone: 'info',
         verdict: '辟谣性质明确，官方信源覆盖较高，可作为低风险线索处理。',
@@ -1082,6 +1140,7 @@ function buildAuthenticityTopics(event) {
     );
     return {
       topic: item.topic || item.title || item.name || `子议题 ${index + 1}`,
+      label: item.label || item.source_label || item.sourceLabel || '官方来源',
       officialRatio: ratio,
       tone: item.tone || authenticityTone(ratio),
       verdict: item.evaluation || item.verdict || item.summary || item.comment || '该子议题暂未返回核验评价。',
@@ -1134,7 +1193,7 @@ export default function EventDetailPage() {
   const sankeyOption = useMemo(() => buildSankeyOption(), []);
   const geoHeatOption = useMemo(() => buildGeoHeatOption(event), [event]);
   const traceForceOption = useMemo(() => buildTraceForceOption(event), [event]);
-  const authenticityTopics = useMemo(() => buildAuthenticityTopics(event), [event]);
+  const authenticityTopics = useMemo(() => buildFakeChecks(event), [event]);
   const discussionCount = Math.round(event.reportCount * (event.sentiment.negative + event.heat) * 0.18);
 
   const exportReport = () => {
@@ -1279,9 +1338,9 @@ export default function EventDetailPage() {
                 <article className={`auth-topic-card ${item.tone}`} key={item.topic}>
                   <div className="auth-topic-head">
                     <span>{item.topic}</span>
-                    <b>{item.officialRatio === null ? '官方来源待接入' : `官方来源 ${item.officialRatio}%`}</b>
+                    <b>{item.officialRatio === null ? `${item.label || '官方来源'}待接入` : `${item.label || '官方来源'} ${item.officialRatio}%`}</b>
                   </div>
-                  <div className="official-source-meter" aria-label={`${item.topic} 官方信源占比`}>
+                  <div className="official-source-meter" aria-label={`${item.topic} ${item.label || '官方来源'}占比`}>
                     <span style={{ width: `${item.officialRatio ?? 0}%` }} />
                   </div>
                   <p>{item.verdict}</p>

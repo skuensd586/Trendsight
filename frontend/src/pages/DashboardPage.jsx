@@ -16,6 +16,7 @@ const sortOptions = [
 const riskOptions = [
   { value: 'all', label: '全部' },
   { value: 'high', label: '高' },
+  { value: 'mid_high', label: '中高' },
   { value: 'mid', label: '中' },
   { value: 'low', label: '低' },
 ];
@@ -77,7 +78,7 @@ export default function DashboardPage() {
     api
       .getHotEvents({
         q: query.trim(),
-        risk_level: riskFilter,
+        risk_level: riskFilter === 'all' ? undefined : riskFilter,
         time_range: timeFilter,
         sort: sortBy,
         page,
