@@ -17,6 +17,7 @@ from typing import Any
 
 from .authenticity import compute_authenticity
 from .cluster import compute_hotness, single_pass_cluster
+from .extract import extract_event_details
 from .nlp import extract_keywords, tokenize
 from .preprocess import is_near_duplicate, normalize_document, simhash
 from .schema import Document
@@ -119,6 +120,17 @@ def _risk_level(heat: float, sentiment: dict[str, float]) -> str:
     return "low"
 
 
+def _recent_window(publish_times: list[datetime], window_days: float) -> list[datetime]:
+    """Trim archive-dated outliers: keep only reports within `window_days` of the most
+    recent one.  Crawler search results sometimes include years-old articles that merely
+    match the keyword; without this, `daily_report_counts` fills the whole span day-by-day
+    and the trend chart stretches across years of empty days (and time_start is wrong)."""
+    if not publish_times:
+        return publish_times
+    cutoff = max(publish_times) - timedelta(days=window_days)
+    return [t for t in publish_times if t >= cutoff]
+
+
 def _event_time(daily_trend: list[dict[str, Any]], time_start: str) -> str:
     """Representative timestamp for the event: noon on the peak-activity day."""
     if not daily_trend:
@@ -152,6 +164,7 @@ def analyze_event(
     top_k_keywords: int = 8,
     dedup_threshold: int = 3,
     lifecycle_bucket_hours: float = 6.0,
+    timeline_window_days: float = 45.0,
 ) -> dict[str, Any]:
     """Run one event's raw records through preprocess -> dedup -> nlp -> heat -> sentiment
     -> trend/lifecycle, shaped to match module B's API contract (see module docstring).
@@ -165,11 +178,19 @@ def analyze_event(
     corpus_tokens = [tokenize(doc.title + " " + doc.content) for doc in docs]
     publish_times = [doc.publish_time for doc in docs]
 
+    # Timeline fields (trend / lifecycle / time span) use only the recent activity
+    # window; heat/keywords/sentiment/authenticity stay on the full doc set (old posts
+    # already contribute ~0 to the time-decayed heat).
+    timeline_times = _recent_window(publish_times, timeline_window_days)
+
     sentiment = _sentiment_distribution(docs, corpus_tokens)
-    time_start = min(publish_times).isoformat() if docs else None
-    time_end = max(publish_times).isoformat() if docs else None
+    time_start = min(timeline_times).isoformat() if timeline_times else None
+    time_end = max(timeline_times).isoformat() if timeline_times else None
     heat = round(compute_hotness(publish_times, now=now), 3)
     dup_rate = duplicate_count / max(len(docs) + duplicate_count, 1)
+
+    keywords = _keywords(corpus_tokens, top_k_keywords)
+    details = extract_event_details(docs, keywords)
 
     report: dict[str, Any] = {
         "event_id": raws[0]["event_id"] if raws else None,
@@ -179,18 +200,23 @@ def analyze_event(
         "heat": heat,
         "risk_level": _risk_level(heat, sentiment),
         "sentiment": sentiment,
-        "keywords": _keywords(corpus_tokens, top_k_keywords),
+        "keywords": keywords,
         "platform_distribution": _platform_distribution(docs),
         "sources": sorted({doc.source for doc in docs}),
         "time_start": time_start,
         "time_end": time_end,
         "authenticity": compute_authenticity(docs, duplicate_rate=dup_rate),
+        # Event-detail fields for the frontend detail page (see algo/extract.py).
+        "summary": details["summary"],
+        "cause": details["cause"],
+        "location": details["location"],
+        "people": details["people"],
     }
-    if docs:
-        daily_trend = daily_report_counts(publish_times)
+    if timeline_times:
+        daily_trend = daily_report_counts(timeline_times)
         report["event_time"] = _event_time(daily_trend, time_start)
         report["trend"] = daily_trend
-        lifecycle, key_timepoints = _lifecycle(daily_trend, publish_times, now, lifecycle_bucket_hours)
+        lifecycle, key_timepoints = _lifecycle(daily_trend, timeline_times, now, lifecycle_bucket_hours)
         report["stage"] = lifecycle["stage"]       # top-level for /hot list view
         report["lifecycle"] = lifecycle            # nested for /events/{id} detail view
         report["key_timepoints"] = key_timepoints  # extra, not in API contract yet

@@ -19,6 +19,7 @@ PLATFORM_TEXT_TYPES: dict[str, str] = {
     "官方网站": "article",
     "官网": "article",
     "新浪新闻": "article",  # sina_crawler, the first real crawler source (A module)
+    "澎湃新闻": "article",  # thepaper crawler, another news source (A module)
 }
 
 AUTO_TEXT_TYPE = "auto"

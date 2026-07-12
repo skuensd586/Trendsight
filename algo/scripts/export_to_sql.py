@@ -43,9 +43,13 @@ def report_to_sql(report: dict, event_id: int) -> list[str]:
         "event_id, title, heat, report_count, duplicate_count, "
         "time_start, time_end, event_time, risk_level, stage, confidence, "
         "prob_latent, prob_growth, prob_peak, prob_decline, analysis, "
-        "positive, neutral, negative, sources, created_at, updated_at"
+        "positive, neutral, negative, sources, "
+        "summary, location, cause, people, authenticity, "
+        "created_at, updated_at"
     )
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    people = report.get("people")
+    authenticity = report.get("authenticity")
     vals = ", ".join([
         str(event_id),
         _esc(report.get("title", "")),
@@ -67,6 +71,11 @@ def report_to_sql(report: dict, event_id: int) -> list[str]:
         _esc(sentiment.get("neutral", 0)),
         _esc(sentiment.get("negative", 0)),
         _esc(json.dumps(report.get("sources", []), ensure_ascii=False)),
+        _esc(report.get("summary")),
+        _esc(report.get("location")),
+        _esc(report.get("cause")),
+        _esc(json.dumps(people, ensure_ascii=False)) if people else "NULL",
+        _esc(json.dumps(authenticity, ensure_ascii=False)) if authenticity else "NULL",
         f"'{now}'",
         f"'{now}'",
     ])

@@ -61,7 +61,7 @@ def normalize_document(raw: dict[str, Any]) -> Document:
 
     # verification_type comes from the crawler; news platforms (新浪新闻) don't carry
     # per-account verification, so treat the platform itself as the credible source.
-    _NEWS_PLATFORMS = {"新浪新闻", "新华社", "人民日报", "光明网", "人民网"}
+    _NEWS_PLATFORMS = {"新浪新闻", "澎湃新闻", "新华社", "人民日报", "光明网", "人民网"}
     verification_type = raw.get("verification_type") or (
         "官方平台" if platform in _NEWS_PLATFORMS else None
     )
