@@ -112,4 +112,7 @@ def build_document(raw: dict, candidate: dict, platform: str = "新浪新闻", p
         "clean_status": "raw",
          "verification_type": candidate.get("verification_type") or raw.get("verification_type"),
         "event_id": None,
+        "repost_count": raw.get("repost_count"),
+        "like_count": raw.get("like_count"),
+        "comment_count": raw.get("comment_count"),
     }

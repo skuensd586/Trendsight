@@ -153,18 +153,21 @@ class WeiboExtractor:
 
             if not data or "id" not in data:
                 return None
-
+            
             user = data.get("user", {})
             content = data.get("text_raw", "").replace("\u200b", "")
             if not content:
                 return None
             return {
-                     "title": content[:50],
-                     "content": content,
-                     "authors": [user.get("screen_name", "")] if user.get("screen_name") else [],
-                     "verification_type": _classify_credibility(user),
-                     "publish_date": None,
-}
+                "title": content[:50],
+                "content": content,
+                "authors": [user.get("screen_name", "")] if user.get("screen_name") else [],
+                "verification_type": _classify_credibility(user),
+                "publish_date": None,
+                "repost_count": data.get("reposts_count"),
+                "like_count": data.get("attitudes_count"),
+                "comment_count": data.get("comments_count"),
+            }
         except Exception as e:
             print(f"  [WeiboExtractor] {url}: {e}")
             return None
@@ -213,6 +216,7 @@ class ZhihuExtractor:
             # ── 专栏文章（zhuanlan.zhihu.com/p/xxx）──
             m_article = re.search(r"zhuanlan\.zhihu\.com/p/(\d+)", url)
             if m_article:
+                article_id = m_article.group(1)
                 session = self._load_session()
                 page_headers = self.headers.copy()
                 page_headers["Referer"] = url
@@ -222,19 +226,33 @@ class ZhihuExtractor:
                 reader = ReadabilityExtractor()
                 result = reader.extract(url, html=page_html)
                 if result and result.get("content"):
-                    # readability 返回整个 HTML 片段，剥离标签只留纯文本
                     text = self._strip_html(result["content"])
-                    # 对 <p> 等标签给一个简单替换，保留段落间的换行
                     text = re.sub(r"</?p[^>]*>", "\n", text)
                     text = re.sub(r"<br\s*/?>", "\n", text)
-                    text = self._strip_html(text)  # 去掉剩余标签
+                    text = self._strip_html(text)
                     text = re.sub(r"\n{3,}", "\n\n", text).strip()
+
+                    # 从页面内嵌的 initialState 里取互动数据，避免额外请求触发 403
+                    like_count, comment_count = None, None
+                    try:
+                        m_data = re.search(r'<script id="js-initialData"[^>]*>(.*?)</script>', page_html, re.DOTALL)
+                        if m_data:
+                            initial_data = json.loads(m_data.group(1))
+                            articles = initial_data.get("initialState", {}).get("entities", {}).get("articles", {})
+                            article_data = articles.get(article_id, {})
+                            like_count = article_data.get("voteupCount")
+                            comment_count = article_data.get("commentCount")
+                    except Exception as e:
+                        print(f"  [ZhihuExtractor] 页面互动数据解析失败 {url}: {e}")
+
                     return {
                         "title": result["title"],
                         "content": text,
                         "authors": result.get("authors", []),
                         "verification_type": "普通用户",
                         "publish_date": None,
+                        "like_count": like_count,
+                        "comment_count": comment_count,
                     }
                 return None
 
@@ -270,6 +288,8 @@ class ZhihuExtractor:
                 "authors": [author.get("name", "")] if author.get("name") else [],
                 "verification_type": _classify_credibility(author),
                 "publish_date": _parse_zhihu_time(item.get("created_time")),
+                "like_count": item.get("voteup_count"),
+                "comment_count": item.get("comment_count"),
             }
         except Exception as e:
             print(f"  [ZhihuExtractor] {url}: {e}")

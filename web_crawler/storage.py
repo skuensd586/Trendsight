@@ -102,7 +102,10 @@ def save_document(engine, doc: dict):
                 crawl_time,
                 content_hash,
                 event_id,
-                verification_type
+                verification_type,
+                repost_count,
+                like_count,
+                comment_count
             )
             VALUES
             (
@@ -116,7 +119,10 @@ def save_document(engine, doc: dict):
                 :crawl_time,
                 :content_hash,
                 :event_id,
-                :verification_type
+                :verification_type,
+                :repost_count,
+                :like_count,
+                :comment_count
             )
             """),
             doc
