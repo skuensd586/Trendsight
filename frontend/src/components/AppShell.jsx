@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
-import { Bell, CircleUserRound, Download, LayoutDashboard, MessageSquareText, Radar } from 'lucide-react';
+import { Bell, CircleUserRound, LayoutDashboard, MessageSquareText, Radar } from 'lucide-react';
 import { api } from '../api/index.js';
 import { events } from '../data/events.js';
 
@@ -28,20 +28,6 @@ export default function AppShell({ children, wide = false }) {
     };
   }, [fallbackTopEvents]);
 
-  const exportBrief = () => {
-    const briefEvents = topEvents
-      .map((event, index) => `${index + 1}. ${event.title}｜热度 ${event.heat}｜风险 ${event.risk}`)
-      .join('\n');
-    const content = [`Trendsight 舆情简报`, `高风险预警：${highRiskCount} 条`, `重点事件：`, briefEvents].join('\n');
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'Trendsight-舆情简报.txt';
-    link.click();
-    URL.revokeObjectURL(url);
-  };
-
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -67,10 +53,6 @@ export default function AppShell({ children, wide = false }) {
           <button className="topbar-icon-action alert-action" aria-label={`高风险预警 ${highRiskCount} 条`} type="button">
             <Bell size={17} />
             <span />
-          </button>
-          <button className="topbar-export-action" onClick={exportBrief} type="button">
-            <Download size={17} />
-            导出简报
           </button>
           <button className="profile-entry" onClick={() => navigate('/profile')} type="button">
             <CircleUserRound size={18} />

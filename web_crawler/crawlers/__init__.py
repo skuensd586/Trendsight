@@ -40,3 +40,4 @@ from crawlers import sina  # noqa: F401
 from crawlers import weibo  # noqa: F401
 from crawlers import zhihu  # noqa: F401
 from crawlers import thepaper  # noqa: F401
+from crawlers import renmin  # noqa: F401

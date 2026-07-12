@@ -8,11 +8,12 @@
 知乎  | ZhihuExtractor
 """
 from newspaper import Article
-from crawlers.weibo import _classify_credibility
+from crawlers.weibo import _classify_credibility, _parse_weibo_time
 import requests
 import re
 import json
 import os
+from datetime import datetime
 
 _DEFAULT_HEADERS = {
     "User-Agent": (
@@ -28,6 +29,49 @@ class NewspaperExtractor:
     def __init__(self, headers: dict | None = None):
         self.headers = headers or _DEFAULT_HEADERS
 
+    @staticmethod
+    def _fallback_publish_date(page_html: str):
+        """newspaper3k 未能识别发布时间时的兜底方案。
+        部分站点（如澎湃新闻的 Next.js 页面）不带标准的
+        <meta property="article:published_time"> 标签，但页面底部
+        <script id="__NEXT_DATA__"> 里的结构化数据带着 pubTime /
+        publishTime 字段，从这里兜底解析。
+        """
+        if not page_html:
+            return None
+        try:
+            m = re.search(
+                r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>',
+                page_html, re.DOTALL,
+            )
+            if not m:
+                return None
+            next_data = json.loads(m.group(1))
+            content_detail = (
+                next_data.get("props", {})
+                .get("pageProps", {})
+                .get("detailData", {})
+                .get("contentDetail", {})
+            )
+            # pubTime 是 "YYYY-MM-DD HH:MM" 格式的字符串，优先用它
+            pub_time_str = content_detail.get("pubTime")
+            if pub_time_str:
+                for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+                    try:
+                        return datetime.strptime(pub_time_str, fmt)
+                    except ValueError:
+                        continue
+            # 备选：publishTime 是毫秒级 Unix 时间戳
+            publish_time_ms = content_detail.get("publishTime")
+            if publish_time_ms:
+                try:
+                    return datetime.fromtimestamp(publish_time_ms / 1000)
+                except (ValueError, OSError, TypeError):
+                    return None
+        except Exception:
+            return None
+        return None
+
     def extract(self, url: str, html: str | None = None) -> dict | None:
         try:
             article = Article(url, language="zh")
@@ -38,11 +82,17 @@ class NewspaperExtractor:
             article.parse()
             if not article.text or len(article.text) < 30:
                 return None
+
+            publish_date = article.publish_date
+            if publish_date is None:
+                # newspaper3k 没识别到，尝试从页面 __NEXT_DATA__ 兜底
+                publish_date = self._fallback_publish_date(article.html)
+
             return {
                 "title": article.title.strip(),
                 "content": article.text.strip(),
                 "authors": article.authors,
-                "publish_date": article.publish_date,
+                "publish_date": publish_date,
             }
         except Exception as e:
             print(f"  [NewspaperExtractor] {url}: {e}")
@@ -153,18 +203,35 @@ class WeiboExtractor:
 
             if not data or "id" not in data:
                 return None
-
+            
             user = data.get("user", {})
             content = data.get("text_raw", "").replace("\u200b", "")
             if not content:
                 return None
+
+            # 解析微博真实发布时间（data["created_at"] 是 RFC 2822 格式字符串）
+            publish_date = None
+            raw_created_at = data.get("created_at", "")
+            if raw_created_at:
+                parsed_str = _parse_weibo_time(raw_created_at)
+                try:
+                    publish_date = datetime.strptime(parsed_str, "%Y-%m-%d %H:%M:%S")
+                except (ValueError, TypeError):
+                    # _parse_weibo_time 解析失败时会原样返回输入字符串，
+                    # 这种情况下 strptime 会报错，兜底为 None，交给 cleaner 的
+                    # 三级兜底逻辑处理（ctime → 当前时间）
+                    publish_date = None
+
             return {
-                     "title": content[:50],
-                     "content": content,
-                     "authors": [user.get("screen_name", "")] if user.get("screen_name") else [],
-                     "verification_type": _classify_credibility(user),
-                     "publish_date": None,
-}
+                "title": content[:50],
+                "content": content,
+                "authors": [user.get("screen_name", "")] if user.get("screen_name") else [],
+                "verification_type": _classify_credibility(user),
+                "publish_date": publish_date,
+                "repost_count": data.get("reposts_count"),
+                "like_count": data.get("attitudes_count"),
+                "comment_count": data.get("comments_count"),
+            }
         except Exception as e:
             print(f"  [WeiboExtractor] {url}: {e}")
             return None
@@ -213,6 +280,7 @@ class ZhihuExtractor:
             # ── 专栏文章（zhuanlan.zhihu.com/p/xxx）──
             m_article = re.search(r"zhuanlan\.zhihu\.com/p/(\d+)", url)
             if m_article:
+                article_id = m_article.group(1)
                 session = self._load_session()
                 page_headers = self.headers.copy()
                 page_headers["Referer"] = url
@@ -222,19 +290,41 @@ class ZhihuExtractor:
                 reader = ReadabilityExtractor()
                 result = reader.extract(url, html=page_html)
                 if result and result.get("content"):
-                    # readability 返回整个 HTML 片段，剥离标签只留纯文本
                     text = self._strip_html(result["content"])
-                    # 对 <p> 等标签给一个简单替换，保留段落间的换行
                     text = re.sub(r"</?p[^>]*>", "\n", text)
                     text = re.sub(r"<br\s*/?>", "\n", text)
-                    text = self._strip_html(text)  # 去掉剩余标签
+                    text = self._strip_html(text)
                     text = re.sub(r"\n{3,}", "\n\n", text).strip()
+
+                    # 从页面内嵌的 initialState 里取互动数据，避免额外请求触发 403
+                    like_count, comment_count = None, None
+                    article_publish_date = None
+                    try:
+                        m_data = re.search(r'<script id="js-initialData"[^>]*>(.*?)</script>', page_html, re.DOTALL)
+                        if m_data:
+                            initial_data = json.loads(m_data.group(1))
+                            articles = initial_data.get("initialState", {}).get("entities", {}).get("articles", {})
+                            article_data = articles.get(article_id, {})
+                            like_count = article_data.get("voteupCount")
+                            comment_count = article_data.get("commentCount")
+                            # created 是 Unix 时间戳（秒级），代表文章首发时间
+                            raw_created = article_data.get("created")
+                            if raw_created:
+                                try:
+                                    article_publish_date = datetime.fromtimestamp(raw_created)
+                                except (ValueError, OSError, TypeError):
+                                    article_publish_date = None
+                    except Exception as e:
+                        print(f"  [ZhihuExtractor] 页面互动数据解析失败 {url}: {e}")
+
                     return {
                         "title": result["title"],
                         "content": text,
                         "authors": result.get("authors", []),
                         "verification_type": "普通用户",
-                        "publish_date": None,
+                        "publish_date": article_publish_date,
+                        "like_count": like_count,
+                        "comment_count": comment_count,
                     }
                 return None
 
@@ -270,6 +360,8 @@ class ZhihuExtractor:
                 "authors": [author.get("name", "")] if author.get("name") else [],
                 "verification_type": _classify_credibility(author),
                 "publish_date": _parse_zhihu_time(item.get("created_time")),
+                "like_count": item.get("voteup_count"),
+                "comment_count": item.get("comment_count"),
             }
         except Exception as e:
             print(f"  [ZhihuExtractor] {url}: {e}")

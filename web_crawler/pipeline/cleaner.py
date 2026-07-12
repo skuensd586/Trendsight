@@ -14,6 +14,13 @@ import hashlib
 import re
 from datetime import datetime
 from simhash import Simhash
+
+# 社交平台：author 取真实发帖/回答用户名（每条内容作者明确唯一，无"转载来源"概念）
+# 新闻类平台（人民网/新浪/澎湃等）：author 统一取来源平台名，不区分真实撰稿人
+# 注意：这里的字符串需要与各爬虫调用 build_document 时传入的 platform 参数一致
+# （通常等于 crawler.display_name），如果 weibo.py / zhihu.py 里 display_name
+# 不是"微博"/"知乎"，需要同步改这里的集合
+SOCIAL_PLATFORMS = {"微博", "知乎"}
 BOILERPLATE_PATTERNS: dict[str, list[str]] = {
     "新浪新闻": [
         "特别声明：以上文章内容仅代表作者本人观点，不代表新浪网观点或立场。"
@@ -80,12 +87,16 @@ def build_document(raw: dict, candidate: dict, platform: str = "新浪新闻", p
         publish_time = parsed if parsed is not None else (raw.get("publish_date") or datetime.now())
     else:
         publish_time = raw.get("publish_date") or datetime.now()
-    author = (
-        ", ".join(raw.get("authors", []))
-        or candidate.get("media_show")
-        or (candidate.get("_raw") or {}).get("author", {}).get("name")
-        or None
-    )
+    # 社交平台（微博/知乎）：author 用真实发帖/回答用户名
+    # 新闻类平台（人民网/新浪/澎湃等）：author 统一用来源平台名，不做真实作者提取
+    if platform in SOCIAL_PLATFORMS:
+        author = (
+            ", ".join(raw.get("authors", []))
+            or (candidate.get("_raw") or {}).get("author", {}).get("name")
+            or None
+        )
+    else:
+        author = candidate.get("media_show") or None
     url_hash = hashlib.md5(candidate["url"].encode()).hexdigest()[:8]
     ts = publish_time.strftime("%Y%m%d%H%M%S")
     return {
@@ -101,4 +112,7 @@ def build_document(raw: dict, candidate: dict, platform: str = "新浪新闻", p
         "clean_status": "raw",
          "verification_type": candidate.get("verification_type") or raw.get("verification_type"),
         "event_id": None,
+        "repost_count": raw.get("repost_count"),
+        "like_count": raw.get("like_count"),
+        "comment_count": raw.get("comment_count"),
     }

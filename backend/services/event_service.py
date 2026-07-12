@@ -6,9 +6,13 @@ into the events table and its child tables (keywords, platforms, trend).
 
 from datetime import datetime
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from models.event import Event, EventKeyword, EventPlatform, EventTrendDaily
+
+from services.similarity_service import find_similar_events
+from services.advice_service import generate_event_advice
 
 
 def save_event(
@@ -91,7 +95,8 @@ def save_event(
         ))
 
     # === Trend 子表（预测数据） ===
-    for day in lifecycle.get('future_trend', []):
+    future_trend = lifecycle.get("future_trend") or report.get("future_trend", [])
+    for day in future_trend:
         db.add(EventTrendDaily(
             event_id=event.event_id,
             date=day.get("date"),
@@ -120,9 +125,15 @@ def get_events(
     if risk_level:
         query = query.filter(Event.risk_level == risk_level)
 
-    # Filter: q title search
+    # Filter: q title or keyword search
     if q:
-        query = query.filter(Event.title.like(f"%{q}%"))
+        keyword = f"%{q}%"
+        query = query.filter(
+            or_(
+                Event.title.like(keyword),
+                Event.keywords.any(EventKeyword.word.like(keyword)),
+            )
+        )
     total = query.count()
     # Sort
     if sort == 'time':
@@ -146,6 +157,19 @@ def get_events(
                 "stage": e.stage,
                 "event_time": e.event_time.isoformat() if e.event_time else None,
                 "created_at": e.created_at.isoformat() if e.created_at else None,
+                "summary": e.summary,
+                "location": e.location,
+                "analysis": e.analysis,
+                "positive": e.positive,
+                "neutral": e.neutral,
+                "negative": e.negative,
+                "keywords": [
+                    keyword.word
+                    for keyword in sorted(
+                        e.keywords,
+                        key=lambda item: item.rank if item.rank is not None else 9999,
+                    )[:8]
+                ],
             }
             for e in items
         ],
@@ -203,6 +227,30 @@ def get_event_detail(
     dc = event.duplicate_count or 0
     total_val = rc + dc
     duplicate_rate = round(dc / total_val, 3) if total_val > 0 else 0.0
+
+    # Authenticity level
+    authenticity_level = None
+    authenticity_label = None
+    authenticity_description = None
+    if event.authenticity and isinstance(event.authenticity, dict):
+        score = event.authenticity.get("credibility_score")
+        if score is not None:
+            if score >= 0.8:
+                authenticity_level = "high"
+                authenticity_label = "高可信"
+                authenticity_description = "来源可靠，官方或认证来源占比较高"
+            elif score >= 0.5:
+                authenticity_level = "medium"
+                authenticity_label = "中等可信"
+                authenticity_description = "存在一定可靠来源，但仍需要进一步核验"
+            else:
+                authenticity_level = "low"
+                authenticity_label = "低可信"
+                authenticity_description = "普通来源比例较高，建议谨慎传播"
+
+    # Similar events
+    similar_events = find_similar_events(db, event.event_id)
+    advice = generate_event_advice(event, similar_events)
     return {
         "event_id": event.event_id,
         "title": event.title,
@@ -227,7 +275,12 @@ def get_event_detail(
         },
         "sources": event.sources,
         'authenticity': event.authenticity,
+        'authenticity_level': authenticity_level,
+        'authenticity_label': authenticity_label,
+        'authenticity_description': authenticity_description,
         'duplicate_rate': duplicate_rate,
+        'similar_events': similar_events,
+        'advice': advice,
         'summary': event.summary,
         'location': event.location,
         'cause': event.cause,

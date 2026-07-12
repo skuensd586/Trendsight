@@ -35,6 +35,50 @@ function toHourLabel(value) {
   return match ? match[1] : text;
 }
 
+function toTrendLabel(value) {
+  if (!value) return '';
+  const text = String(value).replace('T', ' ');
+  const timeMatch = text.match(/(\d{2}:\d{2})/);
+  if (timeMatch) return timeMatch[1];
+  const dateMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return dateMatch ? `${dateMatch[2]}-${dateMatch[3]}` : text;
+}
+
+function normalizePeopleText(value) {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) return value.filter(Boolean).join('、');
+  if (typeof value === 'object') {
+    return Object.values(value)
+      .flatMap((item) => (Array.isArray(item) ? item : [item]))
+      .filter((item) => typeof item === 'string' && item)
+      .join('、');
+  }
+  return String(value);
+}
+
+function normalizeAuthenticity(raw = {}, analytics = {}) {
+  const authenticity = raw.authenticity ?? analytics.authenticity ?? {};
+  return authenticity && typeof authenticity === 'object' ? authenticity : {};
+}
+
+function normalizeDuplicateRate(value) {
+  const normalized = normalizePercent(value);
+  return `${normalized}%`;
+}
+
+function pickTrendData(raw = {}) {
+  if (raw.trend_daily?.length) return raw.trend_daily;
+  if (raw.trend?.length && raw.future_trend?.length) return [...raw.trend, ...raw.future_trend];
+  return raw.trend || raw.future_trend || [];
+}
+
+function normalizeTrendValue(item = {}) {
+  const isPredicted = Number(item.is_predicted ?? item.isPredicted ?? 0) === 1;
+  if (isPredicted) return Number(item.predict_count ?? item.predict_heat ?? item.value ?? item.count ?? 0);
+  return Number(item.value ?? item.count ?? item.predict_count ?? item.predict_heat ?? 0);
+}
+
 function normalizeKeywordLabels(rawKeywords = []) {
   return rawKeywords
     .map((item) => {
@@ -53,6 +97,67 @@ function normalizeKeywordWeights(rawKeywords = []) {
       return [item.word || item.keyword || item.name, item.weight ?? item.value ?? 50];
     })
     .filter(([word]) => Boolean(word));
+}
+
+function normalizeSimilarEvents(rawSimilarEvents = []) {
+  return rawSimilarEvents
+    .map((item, index) => {
+      if (typeof item === 'string') {
+        return {
+          id: item,
+          title: item,
+          similarity: null,
+          reason: '',
+        };
+      }
+      if (!item || typeof item !== 'object') return null;
+      const title = item.title || item.event_title || item.name || '';
+      if (!title) return null;
+      const rawSimilarity = Number(item.similarity ?? item.score ?? item.similarity_score);
+      return {
+        id: String(item.event_id ?? item.id ?? `${title}-${index}`),
+        title,
+        similarity: Number.isFinite(rawSimilarity) ? rawSimilarity : null,
+        reason: item.reason || item.match_reason || item.description || '',
+      };
+    })
+    .filter(Boolean);
+}
+
+function normalizeAdvice(rawAdvice) {
+  if (!rawAdvice) {
+    return {
+      summary: '暂无处置建议。',
+      items: [],
+    };
+  }
+
+  if (typeof rawAdvice === 'string') {
+    return {
+      summary: rawAdvice,
+      items: [],
+    };
+  }
+
+  if (typeof rawAdvice !== 'object') {
+    return {
+      summary: String(rawAdvice),
+      items: [],
+    };
+  }
+
+  const items = [
+    ['风险评估', rawAdvice.risk_assessment ?? rawAdvice.riskAssessment],
+    ['信息核验', rawAdvice.verification],
+    ['响应策略', rawAdvice.response_strategy ?? rawAdvice.responseStrategy],
+  ]
+    .map(([label, text]) => ({ label, text: String(text || '').trim() }))
+    .filter((item) => item.text);
+
+  return {
+    summary: items.length ? items.map((item) => `${item.label}：${item.text}`).join(' ') : '暂无处置建议。',
+    items,
+  };
 }
 
 function normalizePercent(value) {
@@ -85,33 +190,42 @@ export function normalizeEventSummary(raw = {}) {
 
 export function normalizeEventDetail(raw = {}) {
   const analytics = raw.analytics || {};
-  const authenticity = analytics.authenticity || {};
+  const authenticity = normalizeAuthenticity(raw, analytics);
   const traceability = analytics.traceability || {};
   const lifecycle = raw.lifecycle || {};
   const summary = normalizeEventSummary(raw);
   const platformData = raw.platforms || raw.platform_distribution || [];
   const keywordData = raw.words || raw.keywords || [];
-  const trendData = raw.trend?.length ? raw.trend : raw.trend_daily || raw.future_trend || [];
+  const trendData = pickTrendData(raw);
+  const advice = normalizeAdvice(raw.advice || raw.suggestion);
 
   return {
     ...summary,
     cause: raw.cause || raw.reason || '',
-    people: raw.people || raw.subjects || '',
-    falseConfidence: Number(raw.falseConfidence ?? raw.false_confidence ?? raw.confidence ?? authenticity.false_confidence ?? 0.85),
-    duplicateRate: raw.duplicateRate || raw.duplicate_rate || `${authenticity.duplicate_rate ?? 0}%`,
+    people: normalizePeopleText(raw.people || raw.subjects),
+    falseConfidence: Number(
+      raw.falseConfidence
+        ?? raw.false_confidence
+        ?? authenticity.credibility_score
+        ?? authenticity.credibilityScore
+        ?? raw.confidence
+        ?? authenticity.false_confidence
+        ?? authenticity.falseConfidence
+        ?? 0.85,
+    ),
+    duplicateRate: raw.duplicateRate || raw.duplicate_rate || normalizeDuplicateRate(authenticity.duplicate_rate ?? authenticity.duplicateRate ?? 0),
     platforms: platformData.map((item) => ({
       name: item.name || item.platform_name || item.platform || '',
       value: normalizePercent(item.value ?? item.ratio),
     })),
     trend: trendData.map((item) => ({
-      time: toHourLabel(item.time || item.date),
-      value: Number(item.value ?? item.count ?? item.predict_count ?? item.predict_heat ?? 0),
+      time: toTrendLabel(item.time || item.date),
+      value: normalizeTrendValue(item),
+      predicted: Number(item.is_predicted ?? item.isPredicted ?? 0) === 1,
       node: item.node,
     })),
     words: normalizeKeywordWeights(keywordData),
-    similarEvents: (analytics.similar_events || raw.similarEvents || raw.similar_events || []).map((item) =>
-      typeof item === 'string' ? item : item.title,
-    ),
+    similarEvents: normalizeSimilarEvents(analytics.similar_events || raw.similarEvents || raw.similar_events || []),
     pathNodes: (raw.pathNodes || raw.path_nodes || traceability.nodes || []).map((item) => ({
       name: item.name,
       category: Number(item.category ?? 0),
@@ -122,7 +236,8 @@ export function normalizeEventDetail(raw = {}) {
       return [item.source, item.target];
     }),
     qaSeed: raw.qaSeed || raw.qa_seed || '',
-    advice: raw.advice || raw.suggestion || '',
+    advice: advice.summary,
+    adviceItems: advice.items,
     geoDiscussion: (analytics.geo_discussion || raw.geoDiscussion || raw.geo_discussion || []).map((item) => ({
       name: item.name,
       displayName: item.displayName || item.display_name,
@@ -130,6 +245,10 @@ export function normalizeEventDetail(raw = {}) {
       lat: Number(item.lat),
       value: Number(item.value ?? 0),
     })),
+    authenticity,
+    authenticityLevel: raw.authenticity_level || raw.authenticityLevel || authenticity.level || '',
+    authenticityLabel: raw.authenticity_label || raw.authenticityLabel || authenticity.label || '',
+    authenticityDescription: raw.authenticity_description || raw.authenticityDescription || authenticity.description || '',
     lifecycle: {
       ...lifecycle,
       stage: stageLabelMap[lifecycle.stage] || lifecycle.stage,

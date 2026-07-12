@@ -8,7 +8,8 @@ import SentimentBar from '../components/SentimentBar.jsx';
 import WordCloud from '../components/WordCloud.jsx';
 import { api, isBackendMode } from '../api/index.js';
 import { events } from '../data/events.js';
-import { clusterPoints, credibilityFactors, propagationSankey } from '../data/mockAnalytics.js';
+import { clusterPoints, propagationSankey } from '../data/mockAnalytics.js';
+import { buildTimestamp, downloadPdfFromBackend, sanitizeFilePart } from '../utils/briefExport.js';
 
 const chartColors = ['#469B78', '#4E74BD', '#C93F45', '#D4783A', '#7962B3'];
 const defaultGeoDiscussion = [
@@ -71,6 +72,10 @@ function createEmptyDetailEvent(id = '') {
     pathLinks: [],
     qaSeed: '',
     advice: '暂无处置建议。',
+    adviceItems: [],
+    authenticityLevel: '',
+    authenticityLabel: '',
+    authenticityDescription: '',
     geoDiscussion: [],
   };
 }
@@ -84,6 +89,29 @@ function resolveFallbackEvent(id) {
 function formatCount(value) {
   if (value >= 10000) return `${(value / 10000).toFixed(1)}万`;
   return value.toLocaleString();
+}
+
+function normalizeSimilarEventItem(item, index) {
+  if (typeof item === 'string') {
+    return {
+      key: item,
+      title: item,
+      similarityLabel: '',
+      reason: '',
+    };
+  }
+
+  const similarity = Number(item?.similarity);
+  const similarityLabel = Number.isFinite(similarity)
+    ? `相似度 ${Math.round((similarity <= 1 ? similarity * 100 : similarity) * 10) / 10}%`
+    : '';
+
+  return {
+    key: String(item?.id || item?.event_id || item?.title || index),
+    title: item?.title || '未命名相似事件',
+    similarityLabel,
+    reason: item?.reason || '',
+  };
 }
 
 function buildTrendOption(event) {
@@ -996,38 +1024,6 @@ function buildSankeyOption() {
   };
 }
 
-function buildCredibilityOption() {
-  return {
-    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-    grid: { top: 14, right: 32, bottom: 12, left: 108 },
-    xAxis: {
-      type: 'value',
-      max: 100,
-      axisLabel: { formatter: '{value}%', color: '#868F9E' },
-      splitLine: { lineStyle: { color: '#E8EEF3' } },
-    },
-    yAxis: {
-      type: 'category',
-      data: credibilityFactors.map((item) => item.name),
-      axisLabel: { color: '#444A56', fontWeight: 760 },
-      axisLine: { show: false },
-      axisTick: { show: false },
-    },
-    series: [
-      {
-        type: 'bar',
-        data: credibilityFactors.map((item) => item.value),
-        barWidth: 14,
-        label: { show: true, position: 'right', formatter: '{c}%', color: '#444A56', fontWeight: 850 },
-        itemStyle: {
-          borderRadius: [0, 8, 8, 0],
-          color: '#469B78',
-        },
-      },
-    ],
-  };
-}
-
 function buildPlatformRoseOption(event) {
   return {
     color: ['#2A3F54', '#366FB8', '#3A9477', '#D4783A', '#7962B3'],
@@ -1060,25 +1056,124 @@ function buildPlatformRoseOption(event) {
   };
 }
 
-function buildFakeChecks(event) {
-  const confidence = Math.round(event.falseConfidence * 100);
-  return [
+function normalizeOfficialSourceRatio(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(value);
+  if (!Number.isFinite(number)) return null;
+  return Math.max(0, Math.min(100, number > 0 && number <= 1 ? Math.round(number * 100) : Math.round(number)));
+}
+
+function authenticityTone(ratio) {
+  if (ratio === null) return 'pending';
+  if (ratio >= 60) return 'ok';
+  if (ratio >= 20) return 'warn';
+  return 'danger';
+}
+
+function plainUserTone(ratio) {
+  if (ratio === null) return 'pending';
+  if (ratio <= 30) return 'ok';
+  if (ratio <= 60) return 'warn';
+  return 'danger';
+}
+
+function buildAuthenticityRatioChecks(authenticity = {}) {
+  const ratios = [
     {
-      tone: 'ok',
-      title: '官方信源已交叉核实',
-      desc: `${event.people.split('、').slice(1, 3).join('、') || '权威主体'}相关信息与公开通报一致。`,
+      key: 'official_ratio',
+      aliases: ['official_ratio', 'officialRatio'],
+      topic: '官方来源比例',
+      label: '官方来源',
+      tone: authenticityTone,
+      verdict: (ratio) => `官方来源占比 ${ratio}%，用于判断该事件是否已有权威信源覆盖。`,
     },
     {
-      tone: 'ok',
-      title: '传播文本重复率可控',
-      desc: `去重后重复率为 ${event.duplicateRate}，未形成异常刷屏链路。`,
+      key: 'verified_ratio',
+      aliases: ['verified_ratio', 'verifiedRatio'],
+      topic: '已认证来源比例',
+      label: '已认证来源',
+      tone: authenticityTone,
+      verdict: (ratio) => `已认证来源占比 ${ratio}%，用于衡量可追溯账号或机构来源的覆盖程度。`,
     },
     {
-      tone: confidence >= 85 ? 'ok' : 'warn',
-      title: confidence >= 85 ? '真实性置信度较高' : '存在待核验内容',
-      desc: confidence >= 85 ? '核心事实稳定，可进入持续跟踪。' : '部分高传播内容建议继续人工复核。',
+      key: 'plain_user_ratio',
+      aliases: ['plain_user_ratio', 'plainUserRatio'],
+      topic: '普通用户比例',
+      label: '普通用户',
+      tone: plainUserTone,
+      verdict: (ratio) => `普通用户来源占比 ${ratio}%，占比越高越需要继续交叉核验。`,
     },
   ];
+
+  return ratios
+    .map((item) => {
+      const sourceValue = item.aliases.map((key) => authenticity[key]).find((value) => value !== undefined && value !== null && value !== '');
+      const ratio = normalizeOfficialSourceRatio(sourceValue);
+      if (ratio === null) return null;
+      return {
+        topic: item.topic,
+        label: item.label,
+        officialRatio: ratio,
+        tone: item.tone(ratio),
+        verdict: item.verdict(ratio),
+      };
+    })
+    .filter(Boolean);
+}
+
+function buildFakeChecks(event) {
+  const authenticity = event.authenticity || {};
+  const rawTopics = authenticity.topics || authenticity.subtopics || authenticity.checks || authenticity.items || [];
+  const topics = Array.isArray(rawTopics) ? rawTopics : [];
+  const ratioChecks = buildAuthenticityRatioChecks(authenticity);
+
+  if (ratioChecks.length) return ratioChecks;
+
+  if (!topics.length) {
+    return [
+      {
+        topic: '六蓝水库附近村庄受灾',
+        label: '官方来源',
+        officialRatio: 62,
+        tone: 'ok',
+        verdict: '来源多元，已有官方和主流媒体信源交叉覆盖。',
+      },
+      {
+        topic: '水库系豆腐渣工程',
+        label: '官方来源',
+        officialRatio: 0,
+        tone: 'warn',
+        verdict: '仅见社交媒体传播，暂未发现官方信源支撑。',
+      },
+      {
+        topic: '动物园锁死猛兽',
+        label: '官方来源',
+        officialRatio: 15,
+        tone: 'warn',
+        verdict: '存在争议回应，但权威来源覆盖不足，建议继续核验。',
+      },
+      {
+        topic: '辟谣：相关不实说法',
+        label: '官方来源',
+        officialRatio: 85,
+        tone: 'info',
+        verdict: '辟谣性质明确，官方信源覆盖较高，可作为低风险线索处理。',
+      },
+    ];
+  }
+
+  return topics.map((item, index) => {
+    const ratio = normalizeOfficialSourceRatio(
+      item.official_source_ratio ?? item.officialSourceRatio ?? item.official_ratio ?? item.source_ratio ?? item.ratio,
+    );
+    return {
+      topic: item.topic || item.title || item.name || `子议题 ${index + 1}`,
+      label: item.label || item.source_label || item.sourceLabel || '官方来源',
+      officialRatio: ratio,
+      tone: item.tone || authenticityTone(ratio),
+      verdict: item.evaluation || item.verdict || item.summary || item.comment || '该子议题暂未返回核验评价。',
+    };
+  });
 }
 
 export default function EventDetailPage() {
@@ -1124,31 +1219,20 @@ export default function EventDetailPage() {
   const themeRiverOption = useMemo(() => buildThemeRiverOption(event), [event]);
   const lifecycleOption = useMemo(() => buildLifecycleOption(event), [event]);
   const sankeyOption = useMemo(() => buildSankeyOption(), []);
-  const credibilityOption = useMemo(() => buildCredibilityOption(), []);
   const geoHeatOption = useMemo(() => buildGeoHeatOption(event), [event]);
   const traceForceOption = useMemo(() => buildTraceForceOption(event), [event]);
-  const fakeChecks = useMemo(() => buildFakeChecks(event), [event]);
+  const authenticityTopics = useMemo(() => buildFakeChecks(event), [event]);
   const discussionCount = Math.round(event.reportCount * (event.sentiment.negative + event.heat) * 0.18);
 
-  const exportReport = () => {
-    const content = [
-      `Trendsight 舆情分析报告`,
-      `事件：${event.title}`,
-      `热度：${event.heat}`,
-      `风险等级：${event.risk}`,
-      `生命周期：${event.stage}`,
-      `事件概述：${event.summary}`,
-      `情感分布：积极 ${event.sentiment.positive}% / 中性 ${event.sentiment.neutral}% / 消极 ${event.sentiment.negative}%`,
-      `关键词：${event.keywords.join('、')}`,
-      `处置建议：${event.advice}`,
-    ].join('\n');
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${event.title}-舆情分析报告.txt`;
-    link.click();
-    URL.revokeObjectURL(url);
+  const exportReport = async () => {
+    const timestamp = buildTimestamp();
+    const titlePart = sanitizeFilePart(event.title, '未命名事件').slice(0, 18);
+    try {
+      await downloadPdfFromBackend(`/api/events/${event.id}/brief.pdf`, `Trendsight-事件简报-${titlePart}-${timestamp}.pdf`);
+    } catch (error) {
+      console.error(error);
+      window.alert(`事件简报导出失败：${error.message || '请确认后端服务已启动'}`);
+    }
   };
 
   return (
@@ -1175,7 +1259,7 @@ export default function EventDetailPage() {
               </div>
               <button type="button" onClick={exportReport}>
                 <Download size={18} />
-                导出报告
+                导出事件简报
               </button>
             </div>
             <div className="detail-kpi-strip">
@@ -1267,37 +1351,66 @@ export default function EventDetailPage() {
           </ReportSection>
 
           <ReportSection id="authenticity" label="Authenticity" title="虚假文本检测">
-            <div className="fake-detection-grid">
-              <div className="confidence-gauge">
-                <strong>{Math.round(event.falseConfidence * 100)}%</strong>
-                <span>高度可信</span>
+            {(event.authenticityLabel || event.authenticityDescription) && (
+              <div className={`auth-summary ${event.authenticityLevel || 'pending'}`}>
+                <div>
+                  <span>综合可信度</span>
+                  <b>{event.authenticityLabel || '待核验'}</b>
+                </div>
+                {event.authenticityDescription && <p>{event.authenticityDescription}</p>}
               </div>
-              <div className="fake-check-list">
-                {fakeChecks.map((item) => (
-                  <div className={item.tone} key={item.title}>
-                    <ShieldCheck size={18} />
-                    <p>
-                      <b>{item.title}</b>
-                      <span>{item.desc}</span>
-                    </p>
+            )}
+            <div className="auth-topic-list">
+              {authenticityTopics.map((item) => (
+                <article className={`auth-topic-card ${item.tone}`} key={item.topic}>
+                  <div className="auth-topic-head">
+                    <span>{item.topic}</span>
+                    <b>{item.officialRatio === null ? `${item.label || '官方来源'}待接入` : `${item.label || '官方来源'} ${item.officialRatio}%`}</b>
                   </div>
-                ))}
-              </div>
+                  <div className="official-source-meter" aria-label={`${item.topic} ${item.label || '官方来源'}占比`}>
+                    <span style={{ width: `${item.officialRatio ?? 0}%` }} />
+                  </div>
+                  <p>{item.verdict}</p>
+                </article>
+              ))}
             </div>
-            <EChart option={credibilityOption} className="credibility-bar-chart" />
           </ReportSection>
 
           <section className="analysis-split bottom">
             <ReportSection id="retrieval" label="Retrieval" title="历史相似事件">
               <div className="similar-list">
-                {event.similarEvents.map((item) => (
-                  <p key={item}>{item}</p>
-                ))}
+                {event.similarEvents.length ? (
+                  event.similarEvents.map((item, index) => {
+                    const similarEvent = normalizeSimilarEventItem(item, index);
+                    return (
+                      <article className="similar-event-item" key={similarEvent.key}>
+                        <div>
+                          <b>{similarEvent.title}</b>
+                          {similarEvent.similarityLabel && <span>{similarEvent.similarityLabel}</span>}
+                        </div>
+                        {similarEvent.reason && <p>{similarEvent.reason}</p>}
+                      </article>
+                    );
+                  })
+                ) : (
+                  <p className="similar-empty">暂无相似历史事件。</p>
+                )}
               </div>
             </ReportSection>
 
             <ReportSection id="advice" label="Advice" title="处置建议">
-              <p className="report-paragraph">{event.advice}</p>
+              {event.adviceItems?.length ? (
+                <div className="advice-grid">
+                  {event.adviceItems.map((item) => (
+                    <article className="advice-item" key={item.label}>
+                      <span>{item.label}</span>
+                      <p>{item.text}</p>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <p className="report-paragraph">{event.advice}</p>
+              )}
               <div className="keyword-list compact">
                 {event.keywords.map((keyword) => (
                   <span key={keyword}>

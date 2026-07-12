@@ -181,7 +181,7 @@ class ZhihuCrawler:
 
     # ---- 搜索 ----
 
-    def search(self, keyword: str, page: int = 1, page_size: int = 20) -> list[dict]:
+    def search(self, keyword: str, page: int = 1, page_size: int = 20,  mode: str = "hot") -> list[dict]:
         """搜索问题/回答/文章。命中签名校验（403 或返回体带 captcha 字段）
         时直接返回空列表，交给上层 search_multi_page 判断是否继续。
         """
@@ -194,6 +194,13 @@ class ZhihuCrawler:
             "limit": page_size,
             "show_all_topics": 0,
         }
+
+        if mode == "time":
+            params["sort"] = "created_time"
+            params["search_source"] = "Filter"
+        else:
+            params["search_source"] = "Normal"
+            
         data = self._get_json(url, params=params,
                                referer=f"https://www.zhihu.com/search?q={quote(keyword, safe='')}")
         if not data:

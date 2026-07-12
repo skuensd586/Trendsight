@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, DatabaseZap, Search, ShieldAlert, TrendingUp } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, DatabaseZap, FileDown, Search, TrendingUp } from 'lucide-react';
 import AppShell from '../components/AppShell.jsx';
 import EventCard from '../components/EventCard.jsx';
 import { api } from '../api/index.js';
+import { buildTimestamp, downloadPdfFromBackend, toQuery } from '../utils/briefExport.js';
 
 const PAGE_SIZE = 7;
 
@@ -16,6 +17,7 @@ const sortOptions = [
 const riskOptions = [
   { value: 'all', label: '全部' },
   { value: 'high', label: '高' },
+  { value: 'mid_high', label: '中高' },
   { value: 'mid', label: '中' },
   { value: 'low', label: '低' },
 ];
@@ -39,9 +41,6 @@ export default function DashboardPage() {
 
   const metrics = useMemo(() => {
     const highRiskCount = eventItems.filter((event) => ['高', '中高'].includes(event.risk)).length;
-    const avgNegative = eventItems.length
-      ? Math.round(eventItems.reduce((sum, event) => sum + event.sentiment.negative, 0) / eventItems.length)
-      : 0;
     return [
       {
         title: '实时监测事件',
@@ -58,14 +57,6 @@ export default function DashboardPage() {
         delta: `+${highRiskCount}`,
         icon: AlertTriangle,
         tone: 'red',
-      },
-      {
-        title: '全网负面占比',
-        value: `${avgNegative}%`,
-        note: '较昨日上升',
-        delta: '+6%',
-        icon: ShieldAlert,
-        tone: 'orange',
       },
       {
         title: '接入采集源',
@@ -88,7 +79,7 @@ export default function DashboardPage() {
     api
       .getHotEvents({
         q: query.trim(),
-        risk_level: riskFilter,
+        risk_level: riskFilter === 'all' ? undefined : riskFilter,
         time_range: timeFilter,
         sort: sortBy,
         page,
@@ -139,25 +130,29 @@ export default function DashboardPage() {
 
   const insight = useMemo(() => {
     const highRiskEvents = [...eventItems].filter((event) => ['高', '中高'].includes(event.risk)).sort((a, b) => b.heat - a.heat);
-    const risingNegative = [...eventItems].sort((a, b) => b.sentiment.negative - a.sentiment.negative);
-    const keywordRank = eventItems
-      .flatMap((event) => event.keywords)
-      .reduce((acc, keyword) => {
-        acc[keyword] = (acc[keyword] || 0) + 1;
-        return acc;
-      }, {});
-    const hotKeywords = Object.entries(keywordRank)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 8)
-      .map(([keyword]) => keyword);
     return {
       highRiskEvents: highRiskEvents.slice(0, 3),
-      risingNegative: risingNegative.slice(0, 3),
-      hotKeywords,
       normalSources: sourceStatus.normal,
       limitedSources: sourceStatus.limited,
     };
   }, [eventItems, sourceStatus]);
+
+  const exportDashboardBrief = async () => {
+    const timestamp = buildTimestamp();
+    const params = toQuery({
+      q: query.trim(),
+      risk_level: riskFilter === 'all' ? undefined : riskFilter,
+      sort: sortBy,
+      page,
+      size: PAGE_SIZE,
+    });
+    try {
+      await downloadPdfFromBackend(`/api/events/brief/dashboard.pdf${params}`, `Trendsight-事件看板简报-${timestamp}.pdf`);
+    } catch (error) {
+      console.error(error);
+      window.alert(`看板简报导出失败：${error.message || '请确认后端服务已启动'}`);
+    }
+  };
 
   return (
     <AppShell wide>
@@ -166,10 +161,16 @@ export default function DashboardPage() {
           <h1>舆情事件看板</h1>
           <p>实时聚合全网热点事件，辅助分析师快速研判</p>
         </div>
-        <label className="dashboard-search">
-          <Search size={18} />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索事件 / 关键词" />
-        </label>
+        <div className="dashboard-header-actions">
+          <label className="dashboard-search">
+            <Search size={18} />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索事件 / 关键词" />
+          </label>
+          <button className="brief-export-button" type="button" onClick={exportDashboardBrief}>
+            <FileDown size={17} />
+            导出看板简报
+          </button>
+        </div>
       </section>
 
       <section className="metric-overview">
@@ -273,14 +274,6 @@ export default function DashboardPage() {
             ))}
           </InsightBlock>
 
-          <InsightBlock title="今日高频关键词">
-            <div className="insight-keywords">
-              {insight.hotKeywords.map((keyword) => (
-                <span key={keyword}>{keyword}</span>
-              ))}
-            </div>
-          </InsightBlock>
-
           <InsightBlock title="采集源状态">
             <div className="source-health">
               <p>
@@ -296,14 +289,6 @@ export default function DashboardPage() {
             </div>
           </InsightBlock>
 
-          <InsightBlock title="负面上升关注">
-            {insight.risingNegative.map((event) => (
-              <Link to={`/events/${event.id}`} className="insight-event warning" key={event.id}>
-                <span>{event.title}</span>
-                <b>负面 {event.sentiment.negative}%</b>
-              </Link>
-            ))}
-          </InsightBlock>
         </aside>
       </section>
     </AppShell>
