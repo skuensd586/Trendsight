@@ -1,6 +1,7 @@
-import { ArrowRight, Clock3, FileText, Flame, MessageCircle } from 'lucide-react';
+import { Clock3, FileText, Flame, MessageCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import SentimentBar from './SentimentBar.jsx';
+import { isHighRiskEvent } from '../utils/risk.js';
 
 const riskClass = {
   高: 'risk-high',
@@ -24,7 +25,10 @@ function formatCount(value) {
 export default function EventCard({ event, index = 0 }) {
   const navigate = useNavigate();
   const discussionCount = Math.round(event.reportCount * (event.sentiment.negative + event.heat) * 0.18);
-  const isAlert = ['高', '中高'].includes(event.risk) || event.sentiment.negative >= 40;
+  const isAlert = isHighRiskEvent(event) || event.sentiment.negative >= 40;
+  const category = event.category && event.category !== '未分类' ? event.category : '';
+  const location = event.location && !['未标注地区', '未对应地区'].includes(event.location) ? event.location : '';
+  const contextTag = [category, location].filter(Boolean).join(' · ');
   const openDetail = () => {
     if (!event.id) return;
     navigate(`/events/${encodeURIComponent(event.id)}`);
@@ -45,10 +49,8 @@ export default function EventCard({ event, index = 0 }) {
       <section className="event-row-main">
         <div className="event-row-tags">
           <span className={stageClass[event.stage] || 'stage-growth'}>{event.stage}</span>
-          <span className={riskClass[event.risk] || 'risk-mid'}>风险 · {event.risk}</span>
-          <span>
-            {event.category} · {event.location}
-          </span>
+          <span className={riskClass[event.risk] || 'risk-mid'}>风险 {event.risk}</span>
+          {contextTag ? <span>{contextTag}</span> : null}
         </div>
         <h3>{event.title}</h3>
         <div className="event-row-meta">
@@ -64,18 +66,18 @@ export default function EventCard({ event, index = 0 }) {
           <i aria-hidden="true">·</i>
           <span>
             <MessageCircle size={13} />
-            <b>{formatCount(discussionCount)}</b> 讨论
+            <b>{formatCount(discussionCount)}</b> 条讨论
           </span>
         </div>
       </section>
 
       <section className="event-row-sentiment">
-        <p>情感倾向 · 负面 {event.sentiment.negative}%</p>
+        <p>负面情绪 {event.sentiment.negative}%</p>
         <SentimentBar sentiment={event.sentiment} dense />
       </section>
 
       <section className="event-row-heat">
-        <span>热度指数</span>
+        <span>热度</span>
         <strong>{event.heat.toLocaleString()}</strong>
         <p>
           <Flame size={14} />
@@ -83,17 +85,6 @@ export default function EventCard({ event, index = 0 }) {
         </p>
       </section>
 
-      <button
-        className="row-detail-button"
-        onClick={(eventClick) => {
-          eventClick.stopPropagation();
-          openDetail();
-        }}
-        type="button"
-      >
-        详情
-        <ArrowRight size={16} />
-      </button>
     </article>
   );
 }

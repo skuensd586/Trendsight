@@ -99,7 +99,7 @@ function normalizeKeywordWeights(rawKeywords = []) {
     .filter(([word]) => Boolean(word));
 }
 
-function normalizeSimilarEvents(rawSimilarEvents = []) {
+export function normalizeSimilarEvents(rawSimilarEvents = []) {
   return rawSimilarEvents
     .map((item, index) => {
       if (typeof item === 'string') {
@@ -124,10 +124,10 @@ function normalizeSimilarEvents(rawSimilarEvents = []) {
     .filter(Boolean);
 }
 
-function normalizeAdvice(rawAdvice) {
+export function normalizeAdvice(rawAdvice) {
   if (!rawAdvice) {
     return {
-      summary: '暂无处置建议。',
+      summary: '还没有处置建议。',
       items: [],
     };
   }
@@ -147,16 +147,102 @@ function normalizeAdvice(rawAdvice) {
   }
 
   const items = [
-    ['风险评估', rawAdvice.risk_assessment ?? rawAdvice.riskAssessment],
+    ['风险判断', rawAdvice.risk_assessment ?? rawAdvice.riskAssessment],
     ['信息核验', rawAdvice.verification],
-    ['响应策略', rawAdvice.response_strategy ?? rawAdvice.responseStrategy],
+    ['处置建议', rawAdvice.response_strategy ?? rawAdvice.responseStrategy],
   ]
     .map(([label, text]) => ({ label, text: String(text || '').trim() }))
     .filter((item) => item.text);
 
   return {
-    summary: items.length ? items.map((item) => `${item.label}：${item.text}`).join(' ') : '暂无处置建议。',
+    summary: items.length ? items.map((item) => `${item.label}：${item.text}`).join(' ') : '还没有处置建议。',
     items,
+  };
+}
+
+function normalizePropagationRole(node = {}, index = 0) {
+  const role = String(node.role || '').trim();
+  const verificationType = String(node.verification_type || node.verificationType || '').trim();
+
+  if (/初始|首发|爆料/.test(role)) return 0;
+  if (/高峰|峰值/.test(role)) return 3;
+  if (/大V|意见领袖/.test(role) || /头部认证个人|认证机构/.test(verificationType)) return 1;
+  if (/官方|媒体|通报/.test(role) || /官方平台|官方机构/.test(verificationType)) return 2;
+  return index === 0 ? 0 : 4;
+}
+
+function normalizePropagationNodeName(node = {}, index = 0) {
+  const role = String(node.role || `传播节点${index + 1}`).trim();
+  const author = String(node.author || '').trim();
+  const platform = String(node.platform || '').trim();
+  const subject = author && author !== '匿名' ? author : platform;
+  return subject ? `${role} · ${subject}` : role;
+}
+
+function normalizePropagationSymbolSize(node = {}, index = 0) {
+  const influence = Number(node.influence ?? 0);
+  if (!Number.isFinite(influence) || influence <= 0) return Math.max(34, 48 - index * 2);
+  return Math.min(72, Math.max(38, 34 + Math.sqrt(influence)));
+}
+
+function normalizePropagationPath(rawPropagation = {}) {
+  const propagation = rawPropagation && typeof rawPropagation === 'object' ? rawPropagation : {};
+  const rawKeyNodes = propagation.key_nodes || propagation.keyNodes || [];
+  const keyNodes = rawKeyNodes
+    .map((node, index) => {
+      if (!node || typeof node !== 'object') return null;
+      return {
+        ...node,
+        name: normalizePropagationNodeName(node, index),
+        category: normalizePropagationRole(node, index),
+        symbolSize: normalizePropagationSymbolSize(node, index),
+      };
+    })
+    .filter(Boolean);
+
+  const platformChain = propagation.platform_chain || propagation.platformChain || {};
+  const platformNodes = (platformChain.nodes || [])
+    .map((node, index) => {
+      if (!node || typeof node !== 'object') return null;
+      const count = Number(node.count ?? 0);
+      return {
+        ...node,
+        name: String(node.name || `平台${index + 1}`),
+        category: index === 0 ? 0 : 3,
+        symbolSize: Math.min(66, Math.max(34, 34 + Math.sqrt(Number.isFinite(count) ? count : 0) * 2)),
+      };
+    })
+    .filter(Boolean);
+
+  const pathNodes = keyNodes.length ? keyNodes : platformNodes;
+  const pathLinks = keyNodes.length
+    ? keyNodes.slice(1).map((node, index) => [keyNodes[index].name, node.name])
+    : (platformChain.links || []).map((item) => {
+        if (Array.isArray(item)) return item;
+        return [item.source, item.target];
+      });
+
+  const topInfluencers = (propagation.top_influencers || propagation.topInfluencers || [])
+    .map((item, index) => {
+      if (!item || typeof item !== 'object') return null;
+      return {
+        id: String(item.author || item.title || index),
+        author: item.author || '匿名',
+        platform: item.platform || '',
+        verificationType: item.verification_type || item.verificationType || '普通用户',
+        publishTime: toDisplayTime(item.publish_time || item.publishTime),
+        influence: Number(item.influence ?? 0),
+        title: item.title || '',
+      };
+    })
+    .filter(Boolean);
+
+  return {
+    keyNodes,
+    topInfluencers,
+    platformChain,
+    pathNodes,
+    pathLinks,
   };
 }
 
@@ -198,6 +284,9 @@ export function normalizeEventDetail(raw = {}) {
   const keywordData = raw.words || raw.keywords || [];
   const trendData = pickTrendData(raw);
   const advice = normalizeAdvice(raw.advice || raw.suggestion);
+  const propagation = normalizePropagationPath(raw.propagation || analytics.propagation || {});
+  const explicitPathNodes = raw.pathNodes || raw.path_nodes || traceability.nodes || [];
+  const explicitPathLinks = raw.pathLinks || raw.path_links || traceability.links || [];
 
   return {
     ...summary,
@@ -226,12 +315,19 @@ export function normalizeEventDetail(raw = {}) {
     })),
     words: normalizeKeywordWeights(keywordData),
     similarEvents: normalizeSimilarEvents(analytics.similar_events || raw.similarEvents || raw.similar_events || []),
-    pathNodes: (raw.pathNodes || raw.path_nodes || traceability.nodes || []).map((item) => ({
+    propagation: {
+      ...(raw.propagation || analytics.propagation || {}),
+      keyNodes: propagation.keyNodes,
+      topInfluencers: propagation.topInfluencers,
+      platformChain: propagation.platformChain,
+    },
+    pathNodes: (explicitPathNodes.length ? explicitPathNodes : propagation.pathNodes).map((item) => ({
+      ...item,
       name: item.name,
       category: Number(item.category ?? 0),
       symbolSize: Number(item.symbolSize ?? item.symbol_size ?? 42),
     })),
-    pathLinks: (raw.pathLinks || raw.path_links || traceability.links || []).map((item) => {
+    pathLinks: (explicitPathLinks.length ? explicitPathLinks : propagation.pathLinks).map((item) => {
       if (Array.isArray(item)) return item;
       return [item.source, item.target];
     }),
@@ -259,7 +355,7 @@ export function normalizeEventDetail(raw = {}) {
 
 export function normalizePlatformSetting(raw = {}) {
   return {
-    name: raw.name || raw.platform_name || '新采集源',
+    name: raw.name || raw.platform_name || '新监测源',
     url: raw.url || 'https://',
     frequency: raw.frequency || (raw.frequency_minutes ? `${raw.frequency_minutes} 分钟` : '10 分钟'),
     status: raw.status === 'limited' ? '限流' : raw.status === 'error' ? '限流' : raw.status || '正常',

@@ -5,13 +5,14 @@ import AppShell from '../components/AppShell.jsx';
 import EventCard from '../components/EventCard.jsx';
 import { api } from '../api/index.js';
 import { buildTimestamp, downloadPdfFromBackend, toQuery } from '../utils/briefExport.js';
+import { compareRiskPriority, isHighRiskEvent } from '../utils/risk.js';
 
 const PAGE_SIZE = 7;
 
 const sortOptions = [
-  { value: 'heat', label: '按热度' },
-  { value: 'time', label: '按时间' },
-  { value: 'negative', label: '按负面' },
+  { value: 'heat', label: '热度优先' },
+  { value: 'time', label: '最新优先' },
+  { value: 'negative', label: '负面优先' },
 ];
 
 const riskOptions = [
@@ -22,56 +23,69 @@ const riskOptions = [
   { value: 'low', label: '低' },
 ];
 
-const timeOptions = [
-  { value: 'today', label: '今日' },
-  { value: '7d', label: '近 7 天' },
-  { value: '30d', label: '近 30 天' },
-];
+const limitedSourceStatuses = new Set(['限流', 'limited', 'error']);
+
+function normalizeSource(source = {}, index = 0) {
+  const status = limitedSourceStatuses.has(source.status) ? '限流' : '正常';
+  return {
+    name: source.name || source.platform_name || `监测源 ${index + 1}`,
+    url: source.url || '',
+    frequency: source.frequency || (source.frequency_minutes ? `${source.frequency_minutes} 分钟` : '未设置更新频率'),
+    status,
+  };
+}
+
+function compactSourceUrl(url = '') {
+  const text = String(url).trim();
+  if (!text || text === 'https://') return '未配置网址';
+  return text.replace(/^https?:\/\//, '').replace(/\/$/, '');
+}
 
 export default function DashboardPage() {
   const [sortBy, setSortBy] = useState('heat');
   const [riskFilter, setRiskFilter] = useState('all');
-  const [timeFilter, setTimeFilter] = useState('7d');
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
   const [eventItems, setEventItems] = useState([]);
   const [pagination, setPagination] = useState({ page: 1, page_size: PAGE_SIZE, total: 0, total_pages: 1 });
-  const [sourceStatus, setSourceStatus] = useState({ normal: 0, limited: 0, total: 0 });
+  const [sourceStatus, setSourceStatus] = useState({ normal: 0, limited: 0, total: 0, sources: [] });
   const [dashboardError, setDashboardError] = useState('');
 
+  const highRiskEvents = useMemo(() => [...eventItems].filter(isHighRiskEvent).sort(compareRiskPriority), [eventItems]);
+  const highRiskCount = highRiskEvents.length;
+
   const metrics = useMemo(() => {
-    const highRiskCount = eventItems.filter((event) => ['高', '中高'].includes(event.risk)).length;
     return [
       {
-        title: '实时监测事件',
+        title: '监测到的事件',
         value: pagination.total ? pagination.total * 32 : 0,
-        note: '今日新增 23',
+        note: '今日新增 23 条',
         delta: '+23',
         icon: TrendingUp,
         tone: 'green',
       },
       {
-        title: '高风险预警',
+        title: '需优先处理',
         value: highRiskCount,
-        note: '需优先处置',
-        delta: `+${highRiskCount}`,
+        note: '当前列表',
+        delta: '优先看',
         icon: AlertTriangle,
         tone: 'red',
       },
       {
-        title: '接入采集源',
+        title: '接入监测源',
         value: sourceStatus.total,
         note: `${sourceStatus.normal} 正常 · ${sourceStatus.limited} 限流`,
-        delta: '正常',
+        delta: '运行中',
         icon: DatabaseZap,
         tone: 'blue',
       },
     ];
-  }, [eventItems, pagination.total, sourceStatus]);
+  }, [highRiskCount, pagination.total, sourceStatus]);
 
   useEffect(() => {
     setPage(1);
-  }, [query, riskFilter, sortBy, timeFilter]);
+  }, [query, riskFilter, sortBy]);
 
   useEffect(() => {
     let alive = true;
@@ -80,7 +94,6 @@ export default function DashboardPage() {
       .getHotEvents({
         q: query.trim(),
         risk_level: riskFilter === 'all' ? undefined : riskFilter,
-        time_range: timeFilter,
         sort: sortBy,
         page,
         page_size: PAGE_SIZE,
@@ -99,7 +112,7 @@ export default function DashboardPage() {
     return () => {
       alive = false;
     };
-  }, [query, riskFilter, sortBy, timeFilter, page]);
+  }, [query, riskFilter, sortBy, page]);
 
   useEffect(() => {
     let alive = true;
@@ -107,17 +120,18 @@ export default function DashboardPage() {
       .getUserProfile()
       .then((profile) => {
         if (!alive) return;
-        const sources = profile.preferences?.platform_urls || [];
-        const limited = sources.filter((source) => ['限流', 'limited', 'error'].includes(source.status)).length;
+        const sources = (profile.preferences?.platform_urls || []).map(normalizeSource);
+        const limited = sources.filter((source) => source.status === '限流').length;
         setSourceStatus({
           total: sources.length,
           normal: sources.length - limited,
           limited,
+          sources,
         });
       })
       .catch(() => {
         if (!alive) return;
-        setSourceStatus({ normal: 0, limited: 0, total: 0 });
+        setSourceStatus({ normal: 0, limited: 0, total: 0, sources: [] });
       });
     return () => {
       alive = false;
@@ -129,13 +143,14 @@ export default function DashboardPage() {
   const visibleEvents = eventItems;
 
   const insight = useMemo(() => {
-    const highRiskEvents = [...eventItems].filter((event) => ['高', '中高'].includes(event.risk)).sort((a, b) => b.heat - a.heat);
     return {
       highRiskEvents: highRiskEvents.slice(0, 3),
       normalSources: sourceStatus.normal,
       limitedSources: sourceStatus.limited,
+      sources: sourceStatus.sources.slice(0, 4),
+      hiddenSourceCount: Math.max(0, sourceStatus.sources.length - 4),
     };
-  }, [eventItems, sourceStatus]);
+  }, [highRiskEvents, sourceStatus]);
 
   const exportDashboardBrief = async () => {
     const timestamp = buildTimestamp();
@@ -150,26 +165,29 @@ export default function DashboardPage() {
       await downloadPdfFromBackend(`/api/events/brief/dashboard.pdf${params}`, `Trendsight-事件看板简报-${timestamp}.pdf`);
     } catch (error) {
       console.error(error);
-      window.alert(`看板简报导出失败：${error.message || '请确认后端服务已启动'}`);
+      window.alert(`导出看板简报失败：${error.message || '请确认数据服务可用'}`);
     }
   };
 
   return (
-    <AppShell wide>
+    <AppShell
+      wide
+      topbarAction={
+        <button className="topbar-export-action" type="button" onClick={exportDashboardBrief}>
+          <FileDown size={17} />
+          导出看板简报
+        </button>
+      }
+    >
       <section className="ops-dashboard-header">
         <div>
           <h1>舆情事件看板</h1>
-          <p>实时聚合全网热点事件，辅助分析师快速研判</p>
         </div>
         <div className="dashboard-header-actions">
           <label className="dashboard-search">
             <Search size={18} />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索事件 / 关键词" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索事件或关键词" />
           </label>
-          <button className="brief-export-button" type="button" onClick={exportDashboardBrief}>
-            <FileDown size={17} />
-            导出看板简报
-          </button>
         </div>
       </section>
 
@@ -216,20 +234,6 @@ export default function DashboardPage() {
           ))}
         </div>
 
-        <div className="segmented-group">
-          <span>时间</span>
-          {timeOptions.map((option) => (
-            <button
-              className={timeFilter === option.value ? 'active' : ''}
-              onClick={() => setTimeFilter(option.value)}
-              key={option.value}
-              type="button"
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-
         <p>{dashboardError || `共 ${pagination.total || eventItems.length} 条事件`}</p>
       </section>
 
@@ -265,7 +269,7 @@ export default function DashboardPage() {
         </div>
 
         <aside className="insight-rail">
-          <InsightBlock title="高风险待处理">
+          <InsightBlock title="优先查看">
             {insight.highRiskEvents.map((event) => (
               <Link to={`/events/${event.id}`} className="insight-event" key={event.id}>
                 <span>{event.title}</span>
@@ -274,19 +278,36 @@ export default function DashboardPage() {
             ))}
           </InsightBlock>
 
-          <InsightBlock title="采集源状态">
+          <InsightBlock title="监测源状态">
             <div className="source-health">
               <p>
                 <span className="ok-dot" />
-                正常运行
+                运行正常
                 <b>{insight.normalSources}</b>
               </p>
               <p>
                 <span className="warn-dot" />
-                限流关注
+                限流或异常
                 <b>{insight.limitedSources}</b>
               </p>
             </div>
+            {insight.sources.length ? (
+              <div className="source-mini-list">
+                {insight.sources.map((source, index) => (
+                  <div className="source-mini-item" key={`${source.name}-${source.url}-${index}`}>
+                    <span className={source.status === '限流' ? 'warn-dot' : 'ok-dot'} />
+                    <div>
+                      <strong>{source.name}</strong>
+                      <small>{compactSourceUrl(source.url)}</small>
+                    </div>
+                    <em>{source.frequency}</em>
+                  </div>
+                ))}
+                {insight.hiddenSourceCount ? <p className="source-mini-more">另有 {insight.hiddenSourceCount} 个监测源</p> : null}
+              </div>
+            ) : (
+              <p className="source-mini-empty">还没有配置监测源</p>
+            )}
           </InsightBlock>
 
         </aside>

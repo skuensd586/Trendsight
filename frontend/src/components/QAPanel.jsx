@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Bot, SendHorizontal, Sparkles } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Bot, LoaderCircle, SendHorizontal, Sparkles } from 'lucide-react';
 import { api, isBackendMode } from '../api/index.js';
 
-const suggestions = ['当前事件为什么升温？', '负面情绪主要来自哪里？', '下一步处置建议是什么？'];
+const suggestions = ['这件事为什么升温？', '负面情绪主要来自哪里？', '下一步建议怎么做？'];
 const markdownDividerPattern = /^(?:-{3,}|\*{3,}|_{3,})$/;
 const markdownHeadingPattern = /^(#{1,6})(?:\s+(.*?)\s*#*|\s*)$/;
 
@@ -168,17 +168,17 @@ function renderMessageContent(text) {
 function buildAnswer(event, question) {
   if (!event) return '请选择一个事件后再提问。';
   const normalized = question.trim();
-  if (!normalized) return '可以围绕事件起因、风险等级、情绪分布、传播路径或处置建议提问。';
+  if (!normalized) return '请提问事件起因、风险等级、情绪分布、传播路径或处置建议。';
   if (normalized.includes('负面') || normalized.includes('情绪')) {
     return `${event.title} 的负面情绪占比为 ${event.sentiment.negative}%，主要围绕 ${event.keywords
       .slice(0, 3)
-      .join('、')} 展开。建议优先查看高传播节点与官方回应后的评论变化。`;
+      .join('、')} 集中。建议先查看高传播节点，以及官方回应后的评论变化。`;
   }
   if (normalized.includes('建议') || normalized.includes('处置')) {
-    return `${event.advice} 当前生命周期判断为${event.stage}，风险等级为${event.risk}，应结合热度变化和真实性置信度持续研判。`;
+    return `${event.advice} 当前处于${event.stage}，风险等级为${event.risk}。请同时关注热度变化和可信度。`;
   }
   if (normalized.includes('升温') || normalized.includes('原因') || normalized.includes('为什么')) {
-    return `升温原因主要是：${event.cause} 事件随后经由 ${event.pathNodes
+    return `主要原因：${event.cause}。之后经由 ${event.pathNodes
       .slice(0, 3)
       .map((node) => node.name)
       .join('、')} 等节点传播，报道量达到 ${event.reportCount.toLocaleString()} 条。`;
@@ -187,14 +187,16 @@ function buildAnswer(event, question) {
 }
 
 export default function QAPanel({ event, compact = false }) {
+  const chatWindowRef = useRef(null);
   const [question, setQuestion] = useState('');
   const [conversationId, setConversationId] = useState('');
+  const [isAnswering, setIsAnswering] = useState(false);
   const [messages, setMessages] = useState(() => [
     {
       role: 'assistant',
       text: event
-        ? `已载入「${event.title}」。你可以询问事件起因、风险等级、情绪分布、传播路径或处理建议。`
-        : '请选择一个热点事件，我会基于当前看板数据进行分析。',
+        ? `已载入「${event.title}」。可询问起因、风险、情绪、传播路径和处置建议。`
+        : '先选择一个事件，再开始问答。',
     },
   ]);
 
@@ -202,42 +204,55 @@ export default function QAPanel({ event, compact = false }) {
 
   useEffect(() => {
     setConversationId('');
+    setIsAnswering(false);
     setMessages([
       {
         role: 'assistant',
         text: event
-          ? `已载入「${event.title}」。你可以询问事件起因、风险等级、情绪分布、传播路径或处理建议。`
-          : '请选择一个热点事件，我会基于当前看板数据进行分析。',
+          ? `已载入「${event.title}」。可询问起因、风险、情绪、传播路径和处置建议。`
+          : '先选择一个事件，再开始问答。',
       },
     ]);
   }, [eventKey, event]);
 
+  useEffect(() => {
+    const chatWindow = chatWindowRef.current;
+    if (!chatWindow) return;
+    chatWindow.scrollTop = chatWindow.scrollHeight;
+  }, [eventKey, messages, isAnswering]);
+
   const ask = (value = question) => {
     const text = value.trim();
-    if (!text) return;
+    if (!text || isAnswering) return;
     setMessages((current) => [...current, { role: 'user', text }]);
     setQuestion('');
+    setIsAnswering(true);
     if (isBackendMode()) {
       api
         .askEventQuestion({ eventId: event?.id, conversationId, question: text })
         .then((result) => {
           setConversationId(result.conversation_id || conversationId);
-          setMessages((current) => [...current, { role: 'assistant', text: result.answer || '后端暂未返回回答。' }]);
+          setMessages((current) => [...current, { role: 'assistant', text: result.answer || '数据服务没有返回回答。' }]);
         })
         .catch((error) => {
-          setMessages((current) => [...current, { role: 'assistant', text: error.message || '问答接口调用失败。' }]);
+          setMessages((current) => [...current, { role: 'assistant', text: error.message || '问答请求失败，请稍后重试。' }]);
+        })
+        .finally(() => {
+          setIsAnswering(false);
         });
       return;
     }
-    setMessages((current) => [...current, { role: 'assistant', text: buildAnswer(event, text) }]);
+    window.setTimeout(() => {
+      setMessages((current) => [...current, { role: 'assistant', text: buildAnswer(event, text) }]);
+      setIsAnswering(false);
+    }, 520);
   };
 
   return (
     <section className={`qa-panel ${compact ? 'compact' : ''}`} key={eventKey}>
       <div className="section-heading">
         <div>
-          <span className="eyebrow">Large Model QA</span>
-          <h2>智能问答</h2>
+          <h2>事件问答</h2>
         </div>
         <Sparkles size={20} />
       </div>
@@ -250,13 +265,22 @@ export default function QAPanel({ event, compact = false }) {
         ))}
       </div>
 
-      <div className="chat-window">
+      <div className="chat-window" ref={chatWindowRef}>
         {messages.map((message, index) => (
           <div className={`chat-message ${message.role}`} key={`${message.role}-${index}`}>
             {message.role === 'assistant' && <Bot size={17} />}
             <div className="message-content">{renderMessageContent(message.text)}</div>
           </div>
         ))}
+        {isAnswering && (
+          <div className="chat-message assistant is-loading" aria-live="polite">
+            <Bot size={17} />
+            <div className="message-content qa-loading-message">
+              <LoaderCircle className="qa-loading-spinner" size={18} />
+              <span>正在整理回答</span>
+            </div>
+          </div>
+        )}
       </div>
 
       <form
@@ -269,7 +293,7 @@ export default function QAPanel({ event, compact = false }) {
         <input
           value={question}
           onChange={(eventChange) => setQuestion(eventChange.target.value)}
-          placeholder="输入关于当前事件的问题"
+          placeholder="输入你想问的问题"
         />
         <button type="submit" aria-label="发送问题">
           <SendHorizontal size={18} />

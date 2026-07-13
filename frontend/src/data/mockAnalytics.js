@@ -11,31 +11,6 @@ export const clusterPoints = [
   { title: '医院挂号平台排队异常引关注', cluster: '医疗民生', x: 5.2, y: 5.1, heat: 69, risk: '中' },
 ];
 
-export const propagationSankey = {
-  nodes: [
-    { name: '社区求助帖' },
-    { name: '本地博主' },
-    { name: '短视频平台' },
-    { name: '微博热搜' },
-    { name: '新闻客户端' },
-    { name: '应急部门通报' },
-    { name: '辟谣账号' },
-    { name: '公众讨论' },
-  ],
-  links: [
-    { source: '社区求助帖', target: '本地博主', value: 18 },
-    { source: '本地博主', target: '短视频平台', value: 22 },
-    { source: '短视频平台', target: '微博热搜', value: 26 },
-    { source: '微博热搜', target: '新闻客户端', value: 19 },
-    { source: '社区求助帖', target: '应急部门通报', value: 12 },
-    { source: '应急部门通报', target: '新闻客户端', value: 16 },
-    { source: '应急部门通报', target: '辟谣账号', value: 8 },
-    { source: '新闻客户端', target: '公众讨论', value: 24 },
-    { source: '微博热搜', target: '公众讨论', value: 31 },
-    { source: '辟谣账号', target: '公众讨论', value: 6 },
-  ],
-};
-
 export const credibilityFactors = [
   { name: '官方信源一致性', value: 92 },
   { name: '多源交叉出现', value: 88 },

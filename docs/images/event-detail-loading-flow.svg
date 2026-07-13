@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700" viewBox="0 0 1200 700" role="img" aria-labelledby="title desc">
+  <title id="title">事件详情页快慢数据拆分加载流程图</title>
+  <desc id="desc">展示事件详情页打开后，基础事件数据优先渲染，相似事件和处置建议异步加载的流程。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#335f8e"/>
+    </marker>
+    <style>
+      .bg { fill: #f7fafc; }
+      .title { font: 700 30px "Microsoft YaHei", "Noto Sans SC", Arial, sans-serif; fill: #172033; }
+      .sub { font: 400 14px "Microsoft YaHei", "Noto Sans SC", Arial, sans-serif; fill: #607083; }
+      .lane { fill: #ffffff; stroke: #dce6ef; rx: 18; }
+      .lane-title { font: 700 16px "Microsoft YaHei", "Noto Sans SC", Arial, sans-serif; fill: #395672; }
+      .box { fill: #fff; stroke: #c3d2e2; stroke-width: 1.4; rx: 12; }
+      .fast { fill: #e7f5ee; stroke: #7cb99b; }
+      .slow { fill: #fff2e5; stroke: #d89f65; }
+      .ui { fill: #eaf2ff; stroke: #8aaed7; }
+      .qa { fill: #f0edff; stroke: #a99be0; }
+      .label { font: 700 16px "Microsoft YaHei", "Noto Sans SC", Arial, sans-serif; fill: #1c2736; }
+      .small { font: 400 12.5px "Microsoft YaHei", "Noto Sans SC", Arial, sans-serif; fill: #536274; }
+      .line { stroke: #335f8e; stroke-width: 1.7; fill: none; marker-end: url(#arrow); }
+      .dash { stroke-dasharray: 6 5; }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1200" height="700"/>
+  <text class="title" x="52" y="58">事件详情页快慢数据拆分加载流程图</text>
+  <text class="sub" x="52" y="84">基础数据先展示，算法或大模型相关的慢数据单独加载，避免详情页整体等待。</text>
+
+  <rect class="lane" x="44" y="126" width="1112" height="132"/>
+  <text class="lane-title" x="68" y="158">页面打开与兜底数据</text>
+  <rect class="box ui" x="132" y="178" width="170" height="54"/>
+  <text class="label" x="164" y="201">进入详情页</text>
+  <text class="small" x="158" y="222">/events/:id</text>
+  <rect class="box ui" x="426" y="178" width="190" height="54"/>
+  <text class="label" x="456" y="201">解析事件 ID</text>
+  <text class="small" x="454" y="222">useParams + fallback</text>
+  <rect class="box ui" x="742" y="178" width="230" height="54"/>
+  <text class="label" x="772" y="201">创建初始事件对象</text>
+  <text class="small" x="774" y="222">避免空字段导致页面报错</text>
+  <path class="line" d="M302 205 H426"/>
+  <path class="line" d="M616 205 H742"/>
+
+  <rect class="lane" x="44" y="286" width="1112" height="138"/>
+  <text class="lane-title" x="68" y="318">快数据：基础详情优先渲染</text>
+  <rect class="box fast" x="132" y="344" width="190" height="54"/>
+  <text class="label" x="162" y="367">请求事件详情</text>
+  <text class="small" x="160" y="388">api.getEventDetail(id)</text>
+  <rect class="box fast" x="426" y="344" width="190" height="54"/>
+  <text class="label" x="456" y="367">合并基础数据</text>
+  <text class="small" x="452" y="388">buildBaseEvent()</text>
+  <rect class="box fast" x="742" y="344" width="230" height="54"/>
+  <text class="label" x="777" y="367">渲染主要报告</text>
+  <text class="small" x="770" y="388">概述/趋势/情绪/平台/传播</text>
+  <path class="line" d="M857 232 C857 282 227 282 227 344"/>
+  <path class="line" d="M322 371 H426"/>
+  <path class="line" d="M616 371 H742"/>
+
+  <rect class="lane" x="44" y="452" width="1112" height="140"/>
+  <text class="lane-title" x="68" y="484">慢数据：拆分加载与局部更新</text>
+  <rect class="box slow" x="118" y="510" width="185" height="54"/>
+  <text class="label" x="144" y="533">相似历史事件</text>
+  <text class="small" x="142" y="554">getEventSimilarEvents()</text>
+  <rect class="box slow" x="348" y="510" width="185" height="54"/>
+  <text class="label" x="391" y="533">处置建议</text>
+  <text class="small" x="388" y="554">getEventAdvice()</text>
+  <rect class="box slow" x="578" y="510" width="185" height="54"/>
+  <text class="label" x="619" y="533">加载状态</text>
+  <text class="small" x="610" y="554">骨架屏/错误/空状态</text>
+  <rect class="box slow" x="808" y="510" width="220" height="54"/>
+  <text class="label" x="844" y="533">局部替换内容</text>
+  <text class="small" x="838" y="554">不阻塞主报告阅读</text>
+  <path class="line dash" d="M857 398 C857 442 211 442 211 510"/>
+  <path class="line dash" d="M857 398 C857 442 441 442 441 510"/>
+  <path class="line" d="M303 537 H578"/>
+  <path class="line" d="M533 537 H578"/>
+  <path class="line" d="M763 537 H808"/>
+
+  <rect class="box qa" x="250" y="626" width="700" height="42"/>
+  <text class="label" x="420" y="652">详情页右侧嵌入 QAPanel，可继续围绕当前事件追问</text>
+  <path class="line dash" d="M857 398 C1015 476 1000 625 950 647"/>
+</svg>

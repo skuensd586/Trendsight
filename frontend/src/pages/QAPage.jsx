@@ -28,9 +28,9 @@ export default function QAPage() {
     <AppShell>
       <section className="qa-page-layout">
         <aside className="event-picker">
-          <p className="eyebrow">Current Event</p>
-          <h1>选择问答事件</h1>
-          <p>问答会读取当前事件的热度、情绪、关键词、传播路径和预测状态。</p>
+          <p className="eyebrow">问答事件</p>
+          <h1>选择事件</h1>
+          <p>问答会使用所选事件的热度、情绪、关键词、传播路径和预测状态。</p>
           <div className="picker-list">
             {qaEvents.map((event) => (
               <button

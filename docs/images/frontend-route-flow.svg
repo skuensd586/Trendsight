@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="640" viewBox="0 0 1200 640" role="img" aria-labelledby="title desc">
+  <title id="title">Trendsight 前端页面跳转流程图</title>
+  <desc id="desc">展示首页、登录注册、事件看板、事件详情、问答页、个人设置页之间的跳转关系。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#356187"/>
+    </marker>
+    <style>
+      .bg { fill: #f8fbfd; }
+      .title { font: 700 30px "Microsoft YaHei", "Noto Sans SC", Arial, sans-serif; fill: #172033; }
+      .note { font: 400 14px "Microsoft YaHei", "Noto Sans SC", Arial, sans-serif; fill: #5c6979; }
+      .box { fill: #fff; stroke: #bfd0df; stroke-width: 1.5; rx: 14; }
+      .primary { fill: #e8f4ef; stroke: #73b196; }
+      .accent { fill: #eaf2ff; stroke: #8eb2d8; }
+      .purple { fill: #f0edff; stroke: #a99be0; }
+      .warn { fill: #fff4e8; stroke: #d79f64; }
+      .label { font: 700 18px "Microsoft YaHei", "Noto Sans SC", Arial, sans-serif; fill: #1b2736; }
+      .path { font: 500 13px Consolas, "Microsoft YaHei", sans-serif; fill: #4d6073; }
+      .small { font: 400 13px "Microsoft YaHei", "Noto Sans SC", Arial, sans-serif; fill: #586677; }
+      .line { stroke: #356187; stroke-width: 1.7; fill: none; marker-end: url(#arrow); }
+      .dash { stroke-dasharray: 6 5; }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1200" height="640"/>
+  <text class="title" x="56" y="62">前端页面跳转流程图</text>
+  <text class="note" x="56" y="88">用户从首页进入系统，主要工作路径为“看板总览 → 事件详情 → 问答/导出/返回看板”。</text>
+
+  <rect class="box accent" x="78" y="172" width="180" height="92"/>
+  <text class="label" x="132" y="208">首页</text>
+  <text class="path" x="141" y="232">/</text>
+  <text class="small" x="108" y="252">系统介绍与入口</text>
+
+  <rect class="box warn" x="354" y="112" width="190" height="86"/>
+  <text class="label" x="410" y="148">登录页</text>
+  <text class="path" x="418" y="171">/login</text>
+  <rect class="box warn" x="354" y="246" width="190" height="86"/>
+  <text class="label" x="410" y="282">注册页</text>
+  <text class="path" x="407" y="305">/register</text>
+
+  <rect class="box primary" x="636" y="172" width="210" height="96"/>
+  <text class="label" x="704" y="208">事件看板</text>
+  <text class="path" x="705" y="232">/dashboard</text>
+  <text class="small" x="672" y="252">筛选、排序、风险总览</text>
+
+  <rect class="box primary" x="942" y="76" width="210" height="96"/>
+  <text class="label" x="1010" y="112">事件详情</text>
+  <text class="path" x="1004" y="136">/events/:id</text>
+  <text class="small" x="973" y="156">报告、图表、建议、导出</text>
+
+  <rect class="box purple" x="942" y="238" width="210" height="96"/>
+  <text class="label" x="1019" y="274">问答页</text>
+  <text class="path" x="1033" y="298">/qa</text>
+  <text class="small" x="978" y="318">选择事件并追问分析</text>
+
+  <rect class="box" x="942" y="400" width="210" height="96"/>
+  <text class="label" x="1019" y="436">个人设置</text>
+  <text class="path" x="1012" y="460">/profile</text>
+  <text class="small" x="978" y="480">监测源、领域、关键词</text>
+
+  <rect class="box" x="354" y="432" width="190" height="80"/>
+  <text class="label" x="402" y="466">未知路径</text>
+  <text class="path" x="416" y="489">*</text>
+
+  <path class="line" d="M258 202 C310 180 316 156 354 155"/>
+  <path class="line" d="M258 234 C310 252 316 288 354 289"/>
+  <path class="line" d="M544 155 C598 155 598 220 636 220"/>
+  <path class="line" d="M544 289 C598 289 598 220 636 220"/>
+  <path class="line" d="M846 204 C895 174 900 124 942 124"/>
+  <path class="line" d="M846 228 C892 244 900 286 942 286"/>
+  <path class="line" d="M846 246 C895 316 900 448 942 448"/>
+  <path class="line" d="M942 148 C900 196 894 222 846 222"/>
+  <path class="line dash" d="M354 472 C220 472 150 334 168 264"/>
+  <text class="small" x="156" y="385">不存在的路径重定向首页</text>
+
+  <path class="line dash" d="M1047 334 V400"/>
+  <text class="small" x="986" y="370">顶部用户入口</text>
+</svg>

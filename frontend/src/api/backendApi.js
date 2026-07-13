@@ -1,4 +1,4 @@
-import { normalizeEventDetail, normalizeEventSummary } from './mappers.js';
+import { normalizeAdvice, normalizeEventDetail, normalizeEventSummary, normalizeSimilarEvents } from './mappers.js';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
@@ -29,7 +29,7 @@ async function request(path, options = {}) {
     const detail = Array.isArray(payload.detail)
       ? payload.detail.map((item) => item.msg || JSON.stringify(item)).join('; ')
       : payload.detail;
-    throw new Error(payload.message || detail || `Request failed: ${response.status}`);
+    throw new Error(payload.message || detail || `请求失败，状态码 ${response.status}`);
   }
   return payload.data;
 }
@@ -41,14 +41,6 @@ function toQuery(params = {}) {
   });
   const text = query.toString();
   return text ? `?${text}` : '';
-}
-
-async function optionalRequest(path) {
-  try {
-    return await request(path);
-  } catch (_error) {
-    return null;
-  }
 }
 
 function toBackendEventId(eventId) {
@@ -97,23 +89,24 @@ export const backendApi = {
 
   async getEventDetail(eventId) {
     const backendEventId = toBackendEventId(eventId);
-    const [base, trend, sentiment, platform, keywords, lifecycle] = await Promise.all([
-      request(`/api/events/${backendEventId}`),
-      optionalRequest(`/api/events/${backendEventId}/trend`),
-      optionalRequest(`/api/events/${backendEventId}/sentiment`),
-      optionalRequest(`/api/events/${backendEventId}/platform`),
-      optionalRequest(`/api/events/${backendEventId}/keywords`),
-      optionalRequest(`/api/events/${backendEventId}/lifecycle`),
-    ]);
+    const base = await request(`/api/events/${backendEventId}`);
+    return normalizeEventDetail(base);
+  },
 
-    return normalizeEventDetail({
-      ...base,
-      trend: trend?.trend || base.trend,
-      sentiment: sentiment || base.sentiment,
-      platform_distribution: platform?.platform_distribution || base.platform_distribution,
-      keywords: keywords?.keywords || base.keywords,
-      lifecycle,
-    });
+  async getEventSimilarEvents(eventId) {
+    const backendEventId = toBackendEventId(eventId);
+    const data = await request(`/api/events/${backendEventId}/similar`);
+    return normalizeSimilarEvents(data.similar_events || data.items || []);
+  },
+
+  async getEventAdvice(eventId) {
+    const backendEventId = toBackendEventId(eventId);
+    const data = await request(`/api/events/${backendEventId}/advice`);
+    const advice = normalizeAdvice(data.advice || data.suggestion);
+    return {
+      advice: advice.summary,
+      adviceItems: advice.items,
+    };
   },
 
   async askEventQuestion({ eventId, conversationId, question }) {
