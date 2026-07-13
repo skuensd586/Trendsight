@@ -68,8 +68,8 @@ def _classify_credibility(author: dict) -> str:
     if author.get("type") == "org":
         return "认证机构"
     return "普通用户"
+
 def _parse_zhihu_time(ts) -> datetime | None:
-    """知乎时间戳为秒级 int，转 YYYY-MM-DD HH:mm:ss"""
     try:
         return datetime.fromtimestamp(int(ts))
     except (ValueError, TypeError, OSError):
@@ -88,9 +88,7 @@ class ZhihuCrawler:
         self.request_interval = request_interval
         self._cooldowns = {}
         self._current_idx = 0
-
         self._cookie_pool = self._load_cookie_pool(cookie)
-
         active = self._get_active_cookie()
         if active:
             log.info("使用 Cookie，长度=%d, 前缀=%s...", len(active), active[:20])
@@ -181,7 +179,7 @@ class ZhihuCrawler:
 
     # ---- 搜索 ----
 
-    def search(self, keyword: str, page: int = 1, page_size: int = 20,  mode: str = "hot") -> list[dict]:
+    def search(self, keyword: str, page: int = 1, page_size: int = 20,  mode: str = "time") -> list[dict]:
         """搜索问题/回答/文章。命中签名校验（403 或返回体带 captcha 字段）
         时直接返回空列表，交给上层 search_multi_page 判断是否继续。
         """

@@ -222,7 +222,6 @@ class WeiboCrawler:
         except (requests.RequestException, json.JSONDecodeError) as e:
             log.warning("%s -> %s", url, e)
             return None
-        ver_type = _classify_credibility(user)
     # ---- 访客 Cookie 自动刷新 ----
 
     def _try_refresh_visitor_cookie(self) -> bool:
@@ -390,7 +389,7 @@ class WeiboCrawler:
         return []
 
     def _search_desktop_fallback(self, keyword: str, page: int = 1) -> list[dict]:
-        """s.weibo.com 桌面版降级（浏览器请求头伪装）"""
+        """s.weibo.com 桌面版降级搜索"""
         try:
             resp = request_with_retry(
                 self.session.get,

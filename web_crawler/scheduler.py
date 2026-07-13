@@ -26,10 +26,13 @@ setup_logging()
 log = get_logger("scheduler")
 
 _CONFIG_FILE = "crawl_config.json"
+_DEFAULT_LIMIT = 10
+_DEFAULT_MAX_COMMENTS = 25
+_KEYWORD_INTERVAL = 2
 
 
 def crawl_all_keywords(dry_run: bool = False):
-    """跑一整轮：所有已启用平台 × 所有配置关键词，并打印汇总统计"""
+    """执行所有已启用平台 × 关键词的完整爬取，打印汇总统计"""
     log.info("开始多平台爬取...")
     try:
         results = run_all_from_config(dry_run=dry_run)
@@ -48,7 +51,7 @@ def crawl_all_keywords(dry_run: bool = False):
 
 
 def crawl_single_keyword(keyword: str, dry_run: bool = False):
-    """只跑一个关键词，覆盖所有已启用平台（复用 run，不重复实现遍历逻辑）"""
+    """对单个关键词在所有已启用平台上执行爬取"""
     cfg = load_and_validate_config()["crawler"]
     platforms = [
         n for n, p in cfg.items()
@@ -61,8 +64,8 @@ def crawl_single_keyword(keyword: str, dry_run: bool = False):
             stats = run(
                 keyword,
                 platform=p,
-                limit=pc.get("max_articles_per_keyword", 10),
-                max_comments=pc.get("max_comments_per_article", 25),
+        limit=pc.get("max_articles_per_keyword", _DEFAULT_LIMIT),
+        max_comments=pc.get("max_comments_per_article", _DEFAULT_MAX_COMMENTS),
                 dry_run=dry_run,
             )
         except Exception as e:
@@ -70,7 +73,7 @@ def crawl_single_keyword(keyword: str, dry_run: bool = False):
             stats = dict(success=0, skip=0, fail=0)
         for k in total:
             total[k] += stats[k]
-        time.sleep(2)
+        time.sleep(_KEYWORD_INTERVAL)
     log.info("关键词 '%s' 全部平台完成: %s", keyword, total)
 
 

@@ -31,6 +31,8 @@ BOILERPLATE_PATTERNS: dict[str, list[str]] = {
     ],
 }
 _EXCESS_NEWLINES = re.compile(r'\n{3,}')
+
+
 def clean_content(text: str, platform: str = "新浪新闻") -> str:
     """噪音过滤：HTML实体还原、零宽字符、boilerplate、空行归一化"""
     if not text or not text.strip():
@@ -42,18 +44,10 @@ def clean_content(text: str, platform: str = "新浪新闻") -> str:
     text = _EXCESS_NEWLINES.sub('\n\n', text)
     lines = [line.strip() for line in text.split('\n')]
     return '\n'.join(lines).strip()
-def _parse_publish_time(value) -> datetime | None:
-    """Parse publish_time from various formats to a datetime object.
 
-    Supports:
-    - datetime object: returned as-is
-    - int or float: treated as Unix timestamp
-    - numeric str: treated as Unix timestamp after int conversion
-    - str like "20260710084820": parsed as YYYYmmddHHMMSS
-    - str like "2024-06-18 13:43:00": parsed as ISO format
-    - str like "2024-06-18 13:43": parsed as ISO format without seconds
-    - None / unparseable: returns None (caller falls through to datetime.now())
-    """
+
+def _parse_publish_time(value) -> datetime | None:
+    """将多种格式的发布时间解析为 datetime 对象，无法解析时返回 None"""
     if value is None:
         return None
     if isinstance(value, datetime):
@@ -76,11 +70,7 @@ def _parse_publish_time(value) -> datetime | None:
 
 
 def build_document(raw: dict, candidate: dict, platform: str = "新浪新闻", platform_code: str = "XX") -> dict:
-    """
-    组装标准文档字典。
-    raw — extractor.extract() 输出
-    candidate — crawler.search() 输出
-    """
+    """组装标准文档字典。raw 来自提取器，candidate 来自搜索候选"""
     content = clean_content(raw["content"], platform=platform)
     if candidate.get("ctime"):
         parsed = _parse_publish_time(candidate["ctime"])

@@ -47,10 +47,8 @@ _CONFIG_FILE = "crawl_config.json"
 _REQUEST_INTERVAL = 1.5
 _DEFAULT_MAX_COMMENTS = 25
 _DEFAULT_MAX_ARTICLES = 20
-# 经验值：搜索接口每页约返回 15 条有效候选（不同平台略有差异），
-# 用于估算需要翻多少页才能凑够 limit 条。
 _ESTIMATED_CANDIDATES_PER_PAGE = 15
-_PAGE_BUFFER = 2  # 额外多翻的页数，覆盖去重/失败造成的损耗
+_PAGE_BUFFER = 2
 
 
 def load_and_validate_config(path: str = _CONFIG_FILE) -> dict:
@@ -63,6 +61,46 @@ def load_and_validate_config(path: str = _CONFIG_FILE) -> dict:
         log.error("配置文件 %s 不合法: %s", path, e)
         raise
     return cfg
+
+
+def _process_comments(crawler, platform: str, candidate: dict,
+                       doc: dict, engine, max_comments: int):
+    """社交平台评论拉取与入库"""
+    if not hasattr(crawler, "fetch_comments") or engine is None:
+        return
+    comment_list = []
+    try:
+        if platform == "weibo":
+            tweet_id = candidate.get("tweet_id")
+            uid = candidate.get("uid")
+            if tweet_id and uid:
+                tweet_mid = url_to_mid(tweet_id)
+                comment_list = crawler.fetch_comments(
+                    tweet_mid, uid, max_count=max_comments)
+        elif platform == "zhihu":
+            if candidate.get("kind") == "answer":
+                comment_list = crawler.fetch_comments(
+                    candidate["id"], max_count=max_comments)
+        if comment_list:
+            log.info("  [评论] 拉取到 %d 条评论", len(comment_list))
+        for cm in comment_list:
+            cm["parent_post_id"] = doc["doc_id"]
+            cm["source_platform"] = crawler.display_name
+            cm["crawl_time"] = datetime.now()
+            cm["content_hash"] = str(Simhash(cm.get("content", "")).value)
+            cm["duplicate_count"] = 1
+            cm["clean_status"] = "raw"
+            if reason := check_comment_url(engine, cm["source_url"]):
+                log.debug("评论URL重复: %s", reason)
+                continue
+            duplicate = check_comment_content(engine, cm["content"])
+            if duplicate:
+                log.info("发现重复评论: distance=%s", duplicate["distance"])
+                increase_comment_duplicate_count(engine, duplicate["content_hash"])
+                continue
+            save_comment(engine, cm)
+    except Exception as e:
+        log.error("  [评论拉取异常] %s", e)
 
 
 def run(keyword: str,
@@ -91,7 +129,6 @@ def run(keyword: str,
     ptag = platform
     log.info("[%s] keyword=\"%s\", limit=%d, max_comments=%d, dry_run=%s",
               ptag, keyword, limit, max_comments, dry_run)
-
     # 构造爬虫实例
     if crawler is None:
         crawler_kwargs = {}
@@ -148,52 +185,9 @@ def run(keyword: str,
             else:
                 save_document(engine, doc)
                 log.info("  已入库: %s", doc["title"])
+                # 评论爬取（仅社交平台）
+                _process_comments(crawler, platform, candidate, doc, engine, max_comments)
             success += 1
-
-            # -- 评论爬取（仅社交平台，如微博/知乎） --
-            # 不同平台 fetch_comments 所需参数不同（微博要 tweet_mid+uid，
-            # 知乎直接用 answer_id），这里按平台分别取参数，取到再统一调用。
-            if not dry_run and hasattr(crawler, "fetch_comments") and engine is not None:
-                comment_list = []
-                try:
-                    if platform == "weibo":
-                        tweet_id = candidate.get("tweet_id")
-                        uid = candidate.get("uid")
-                        if tweet_id and uid:
-                            tweet_mid = url_to_mid(tweet_id)
-                            comment_list = crawler.fetch_comments(
-                                tweet_mid, uid, max_count=max_comments)
-                    elif platform == "zhihu":
-                        # 只有回答（kind=answer）才有评论区，问题/文章跳过
-                        if candidate.get("kind") == "answer":
-                            comment_list = crawler.fetch_comments(
-                                candidate["id"], max_count=max_comments)
-
-                    if comment_list:
-                        log.info("  [评论] 拉取到 %d 条评论", len(comment_list))
-                    for cm in comment_list:
-                        cm["parent_post_id"] = doc["doc_id"]
-                        cm["source_platform"] = crawler.display_name
-                        cm["crawl_time"] = datetime.now()
-                        cm["content_hash"] = str(
-                            Simhash(
-                                    cm.get("content", "")
-                            ).value
-                        )
-                        cm["duplicate_count"] = 1
-                        cm["clean_status"] = "raw"
-                        if reason := check_comment_url(engine, cm["source_url"]):
-                             log.debug("评论URL重复: %s",reason)
-                             continue
-                        duplicate = check_comment_content(engine,cm["content"])
-                        if duplicate:
-                             log.info("发现重复评论: distance=%s",duplicate["distance"])
-                             increase_comment_duplicate_count(engine,duplicate["content_hash"])
-                             continue
-                        save_comment(engine, cm)
-                except Exception as e:
-                    log.error("  [评论拉取异常] %s", e)
-            # -------------------------------
             time.sleep(_REQUEST_INTERVAL)
     finally:
         # 只释放本函数自己创建的 engine；如果 engine 是调用方传入的（比如

@@ -87,16 +87,7 @@ def retry_with_backoff(max_attempts: int = 3,
 def request_with_retry(fn, *args, max_attempts: int = 3,
                        base_delay: float = 2.0,
                        max_delay: float = 30.0, **kwargs):
-    """Call fn(*args, **kwargs) with exponential-backoff retry.
-
-    Retries on timeouts, connection errors, and HTTP 429/5xx status codes.
-    Returns the result of the first successful call, or raises the last exception
-    if all attempts fail — same retry policy as L{retry_with_backoff}.
-
-    Usage:
-        resp = request_with_retry(session.get, url, params=params, timeout=15)
-        resp = request_with_retry(session.post, url, json=payload, timeout=10)
-    """
+    """带指数退避重试的 GET/POST 请求。超时、连接错误、429/5xx 自动重试"""
     last_exc = None
     for attempt in range(1, max_attempts + 1):
         try:
