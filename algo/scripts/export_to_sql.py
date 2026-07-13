@@ -44,12 +44,13 @@ def report_to_sql(report: dict, event_id: int) -> list[str]:
         "time_start, time_end, event_time, risk_level, stage, confidence, "
         "prob_latent, prob_growth, prob_peak, prob_decline, analysis, "
         "positive, neutral, negative, sources, "
-        "summary, location, cause, people, authenticity, "
+        "summary, location, cause, people, authenticity, propagation, "
         "created_at, updated_at"
     )
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     people = report.get("people")
     authenticity = report.get("authenticity")
+    propagation = report.get("propagation")
     vals = ", ".join([
         str(event_id),
         _esc(report.get("title", "")),
@@ -76,6 +77,7 @@ def report_to_sql(report: dict, event_id: int) -> list[str]:
         _esc(report.get("cause")),
         _esc(json.dumps(people, ensure_ascii=False)) if people else "NULL",
         _esc(json.dumps(authenticity, ensure_ascii=False)) if authenticity else "NULL",
+        _esc(json.dumps(propagation, ensure_ascii=False)) if propagation else "NULL",
         f"'{now}'",
         f"'{now}'",
     ])

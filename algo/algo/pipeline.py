@@ -18,6 +18,7 @@ from typing import Any
 from .authenticity import compute_authenticity
 from .cluster import compute_hotness, single_pass_cluster
 from .extract import extract_event_details
+from .propagation import detect_propagation
 from .nlp import extract_keywords, tokenize
 from .preprocess import is_near_duplicate, normalize_document, simhash
 from .schema import Document
@@ -178,10 +179,12 @@ def analyze_event(
     corpus_tokens = [tokenize(doc.title + " " + doc.content) for doc in docs]
     publish_times = [doc.publish_time for doc in docs]
 
-    # Timeline fields (trend / lifecycle / time span) use only the recent activity
-    # window; heat/keywords/sentiment/authenticity stay on the full doc set (old posts
-    # already contribute ~0 to the time-decayed heat).
+    # Timeline fields (trend / lifecycle / time span / propagation) use only the recent
+    # activity window; heat/keywords/sentiment/authenticity stay on the full doc set (old
+    # posts already contribute ~0 to the time-decayed heat).
     timeline_times = _recent_window(publish_times, timeline_window_days)
+    cutoff = max(publish_times) - timedelta(days=timeline_window_days) if publish_times else None
+    timeline_docs = [d for d in docs if cutoff is None or d.publish_time >= cutoff]
 
     sentiment = _sentiment_distribution(docs, corpus_tokens)
     time_start = min(timeline_times).isoformat() if timeline_times else None
@@ -211,6 +214,8 @@ def analyze_event(
         "cause": details["cause"],
         "location": details["location"],
         "people": details["people"],
+        # Key-node propagation analysis (see algo/propagation.py).
+        "propagation": detect_propagation(timeline_docs),
     }
     if timeline_times:
         daily_trend = daily_report_counts(timeline_times)

@@ -77,4 +77,18 @@ def normalize_document(raw: dict[str, Any]) -> Document:
         author=raw.get("author", ""),
         text_type=resolve_text_type(platform),
         verification_type=verification_type,
+        repost_count=_to_int(raw.get("repost_count")),
+        # posts use "like_count"; comments use "likes_count" — accept either.
+        like_count=_to_int(raw.get("like_count", raw.get("likes_count"))),
+        comment_count=_to_int(raw.get("comment_count")),
     )
+
+
+def _to_int(value: Any) -> int:
+    """Coerce a crawler count (may be '', None, '39.0', 39) to a non-negative int."""
+    if value is None or value == "":
+        return 0
+    try:
+        return max(0, int(float(value)))
+    except (TypeError, ValueError):
+        return 0

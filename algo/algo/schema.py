@@ -30,3 +30,9 @@ class Document:
     # Values: 官方平台 / 认证机构 / 头部认证个人 / 认证个人 / 普通用户 / None
     # None means the crawler didn't supply this field (treated as 普通用户 in authenticity scoring).
     verification_type: str | None = None
+    # Engagement counts (转赞评), populated by the crawler for social posts (微博/知乎);
+    # news-site articles carry no engagement and default to 0.  Used by propagation.py to
+    # score a post's influence as a propagation hub.
+    repost_count: int = 0
+    like_count: int = 0
+    comment_count: int = 0
