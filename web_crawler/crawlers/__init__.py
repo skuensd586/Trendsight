@@ -1,11 +1,4 @@
-# -*- coding: utf-8 -*-
-"""
-爬虫注册表。
-
-加新平台时两步：
-  1. 在 crawlers/ 下新建模块，类上加 @register("平台名")
-  2. 确保模块被 import（在 crawlers/__init__.py 或 orchestrator.py 中 import）
-"""
+"""爬虫注册表。新平台需在类上加 @register("平台名") 并在此文件导入模块"""
 
 from typing import Any
 
@@ -21,7 +14,7 @@ def register(name: str):
 
 
 def get_crawler(name: str, **kwargs) -> Any:
-    """根据名称获取爬虫实例"""
+    """根据注册名称获取爬虫实例"""
     cls = _REGISTRY.get(name)
     if cls is None:
         raise KeyError(
@@ -31,7 +24,7 @@ def get_crawler(name: str, **kwargs) -> Any:
 
 
 def list_platforms() -> list[str]:
-    """列出所有已注册的平台名"""
+    """列出已注册的平台名称"""
     return list(_REGISTRY.keys())
 
 

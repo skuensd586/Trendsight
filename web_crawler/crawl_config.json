@@ -3,37 +3,37 @@
     "zhihu": {
       "enabled": true,
       "keywords": [
-        "广西洪水",
-        "横州",
-        "广西暴雨",
-        "广西辟谣",
-        "六蓝水库"
+        "Claude Code后门",
+        "工信部NVDB Claude",
+        "Anthropic植入代码",
+        "Claude中国用户",
+        "阿里 Claude"
       ],
-      "max_articles_per_keyword": 25,
+      "max_articles_per_keyword": 30,
       "max_comments_per_article": 30,
       "request_interval": 1.5
     },
     "weibo": {
       "enabled": true,
       "keywords": [
-        "广西洪水",
-        "横州",
-        "广西暴雨",
-        "广西辟谣",
-        "六蓝水库"
+        "Claude Code后门",
+        "工信部NVDB Claude",
+        "Anthropic植入代码",
+        "Claude中国用户",
+        "阿里 Claude"
       ],
-      "max_articles_per_keyword": 30,
-      "max_comments_per_article": 30,
+      "max_articles_per_keyword": 25,
+      "max_comments_per_article": 25,
       "request_interval": 2.0
     },
     "sina": {
       "enabled": true,
       "keywords": [
-        "广西洪水",
-        "横州",
-        "广西暴雨",
-        "广西辟谣",
-        "六蓝水库"
+        "Claude Code后门",
+        "工信部NVDB Claude",
+        "Anthropic植入代码",
+        "Claude中国用户",
+        "阿里 Claude"
       ],
       "max_articles_per_keyword": 25,
       "request_interval": 1.5
@@ -41,25 +41,25 @@
     "thepaper": {
       "enabled": true,
       "keywords": [
-        "广西洪水",
-        "横州",
-        "广西暴雨",
-        "广西辟谣",
-        "六蓝水库"
+        "Claude Code后门",
+        "工信部NVDB Claude",
+        "Anthropic植入代码",
+        "Claude中国用户",
+        "阿里 Claude"
       ],
-      "max_articles_per_keyword": 25,
+      "max_articles_per_keyword": 10,
       "request_interval": 1.5
     },
     "renmin": {
       "enabled": true,
       "keywords": [
-        "广西洪水",
-        "横州",
-        "广西暴雨",
-        "广西辟谣",
-        "六蓝水库"
+        "Claude Code后门",
+        "工信部NVDB Claude",
+        "Anthropic植入代码",
+        "Claude中国用户",
+        "阿里 Claude"
       ],
-      "max_articles_per_keyword": 25,
+      "max_articles_per_keyword": 0,
       "request_interval": 1.5
     }
   },

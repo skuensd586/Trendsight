@@ -40,33 +40,23 @@ DB_CONFIG = {
     ),
 }
 
-# ============================================================
-# 数据库连接
-# ============================================================
 
 def create_db_engine():
-    """
-    创建 SQLAlchemy 数据库引擎
-    """
+    """创建 SQLAlchemy 数据库引擎"""
     conn_str = (
         f"mysql+pymysql://"
         f"{DB_CONFIG['user']}:{DB_CONFIG['password']}"
         f"@{DB_CONFIG['host']}:{DB_CONFIG['port']}"
         f"/{DB_CONFIG['database']}"
     )
-    return create_engine(conn_str)
+    try:
+        return create_engine(conn_str)
+    except Exception as e:
+        raise RuntimeError(f"数据库引擎创建失败: {e}") from e
 
-# ============================================================
-# 新闻/帖子 raw_documents 操作
-# ============================================================
 
 def check_url(engine, source_url: str) -> str | None:
-    """
-    新闻 URL 精确去重
-
-    正文提取前调用
-    """
-
+    """新闻 URL 精确去重，正文提取前调用"""
     with engine.connect() as conn:
         result = conn.execute(
             text("""
@@ -84,9 +74,7 @@ def check_url(engine, source_url: str) -> str | None:
     return None
 
 def save_document(engine, doc: dict):
-    """
-    新闻入库
-    """
+    """新闻入库"""
     with engine.begin() as conn:
         conn.execute(
             text("""
@@ -133,12 +121,7 @@ def check_content(
         content: str,
         threshold: int = 3
 ):
-    """
-    新闻正文 SimHash 去重
-
-    注意：
-        不参与水军分析
-    """
+    """新闻正文 SimHash 去重（不参与水军分析）"""
     with engine.connect() as conn:
         rows = conn.execute(
             text("""
@@ -164,21 +147,13 @@ def check_content(
             )
     return None
 
-# ============================================================
-# 评论 raw_comments 操作
-# ============================================================
 
 def check_comment_url(
         engine,
         source_url: str
 ):
-    """
-    评论 URL 精确去重
-
-    防止同一评论重复入库
-    """
+    """评论 URL 精确去重，防止同一评论重复入库"""
     with engine.connect() as conn:
-
         result = conn.execute(
             text("""
             SELECT 1
@@ -199,17 +174,8 @@ def save_comment(
         engine,
         comment: dict
 ):
-    """
-    评论入库
-
-    新增：
-        duplicate_count
-
-    初始值：
-        1
-    """
+    """评论入库"""
     with engine.begin() as conn:
-
         conn.execute(
             text("""
             INSERT INTO raw_comments
@@ -255,20 +221,7 @@ def check_comment_content(
         content: str,
         threshold: int = 3
 ):
-    """
-    评论 SimHash 相似检测。
-
-    与新闻不同：
-
-        评论重复 = 可能存在异常传播行为
-    返回：
-        {
-            "content_hash": 原评论hash,
-            "distance": 海明距离
-        }
-    没找到：
-        None
-    """
+    """评论 SimHash 相似检测。返回 {content_hash, distance} 或 None"""
     with engine.connect() as conn:
         rows = conn.execute(
             text("""
@@ -297,9 +250,7 @@ def increase_comment_duplicate_count(
         engine,
         content_hash: str
 ):
-    """
-    增加重复评论次数。
-    """
+    """增加重复评论次数"""
     with engine.begin() as conn:
         conn.execute(
             text("""

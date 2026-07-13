@@ -14,6 +14,8 @@ import re
 import json
 import os
 from datetime import datetime
+from utils.logger import get_logger
+log = get_logger("extractor")
 
 _DEFAULT_HEADERS = {
     "User-Agent": (
@@ -95,7 +97,7 @@ class NewspaperExtractor:
                 "publish_date": publish_date,
             }
         except Exception as e:
-            print(f"  [NewspaperExtractor] {url}: {e}")
+            log.warning("[NewspaperExtractor] %s: %s", url, e)
             return None
 
 
@@ -106,7 +108,7 @@ class ReadabilityExtractor:
         try:
             from readability import Document as _RDoc
         except ImportError:
-            raise ImportError("????: pip install readability-lxml")
+            raise ImportError("缺少依赖: pip install readability-lxml")
         self._Document = _RDoc
 
     def extract(self, url: str, html: str | None = None) -> dict | None:
@@ -126,8 +128,9 @@ class ReadabilityExtractor:
                 "publish_date": None,
             }
         except Exception as e:
-            print(f"  [ReadabilityExtractor] {url}: {e}")
+            log.warning("[ReadabilityExtractor] %s: %s", url, e)
             return None
+
 
 
 
@@ -170,13 +173,12 @@ class WeiboExtractor:
                         name = name.strip()
                         value = value.strip()
                         self._session.cookies.set(name, value, domain=".weibo.com")
-                        self._session.cookies.set(name, value, domain=".weibo.cn")
-                print(f"  [WeiboExtractor] 已加载 Cookie，长度={len(cookie)}")
+                self._session.cookies.set(name, value, domain=".weibo.cn")
+                log.info("[WeiboExtractor] 已加载 Cookie，长度=%d", len(cookie))
             else:
-                print("  [WeiboExtractor] 未读到 WEIBO_COOKIE，"
-                      "ajax/statuses/show 将以未登录状态请求")
+                log.warning("[WeiboExtractor] 未读到 WEIBO_COOKIE，将以未登录状态请求")
         except Exception as e:
-            print(f"  [WeiboExtractor] Cookie 加载失败: {e}")
+            log.warning("[WeiboExtractor] Cookie 加载失败: %s", e)
         return self._session
 
     def extract(self, url: str, html: str | None = None) -> dict | None:
@@ -233,8 +235,9 @@ class WeiboExtractor:
                 "comment_count": data.get("comments_count"),
             }
         except Exception as e:
-            print(f"  [WeiboExtractor] {url}: {e}")
+            log.warning("[WeiboExtractor] %s: %s", url, e)
             return None
+
 
 class ZhihuExtractor:
     """知乎回答/文章正文抽取。
@@ -305,17 +308,19 @@ class ZhihuExtractor:
                             initial_data = json.loads(m_data.group(1))
                             articles = initial_data.get("initialState", {}).get("entities", {}).get("articles", {})
                             article_data = articles.get(article_id, {})
-                            like_count = article_data.get("voteupCount")
-                            comment_count = article_data.get("commentCount")
-                            # created 是 Unix 时间戳（秒级），代表文章首发时间
-                            raw_created = article_data.get("created")
-                            if raw_created:
-                                try:
-                                    article_publish_date = datetime.fromtimestamp(raw_created)
-                                except (ValueError, OSError, TypeError):
-                                    article_publish_date = None
+                        like_count = article_data.get("voteupCount")
+                        comment_count = article_data.get("commentCount")
+                        like_count = article_data.get("voteupCount")
+                        comment_count = article_data.get("commentCount")
+                        # created 是 Unix 时间戳（秒级）
+                        raw_created = article_data.get("created")
+                        if raw_created:
+                            try:
+                                article_publish_date = datetime.fromtimestamp(raw_created)
+                            except (ValueError, OSError, TypeError):
+                                article_publish_date = None
                     except Exception as e:
-                        print(f"  [ZhihuExtractor] 页面互动数据解析失败 {url}: {e}")
+                        log.warning("[ZhihuExtractor] 页面互动数据解析失败 %s: %s", url, e)
 
                     return {
                         "title": result["title"],
@@ -364,7 +369,7 @@ class ZhihuExtractor:
                 "comment_count": item.get("comment_count"),
             }
         except Exception as e:
-            print(f"  [ZhihuExtractor] {url}: {e}")
+            log.warning("[ZhihuExtractor] %s: %s", url, e)
             return None
 
 EXTRACTOR_MAP = {

@@ -46,10 +46,11 @@
  
  pipeline/
  ├── __init__.py
- ├── extractor.py        # 正文抽取
- │   ├── NewspaperExtractor    # type="news"   → newspaper3k，适用于新闻网站
- │   ├── ReadabilityExtractor  # type="social" → readability-lxml，适用于社交页面
- │   └── WeiboExtractor        # type="weibo"  → weibo.com/ajax/statuses/show API
+ ├── extractor.py        # 正文提取器，统一接口 extract(url, html=None) -> dict | None
+ │   ├── NewspaperExtractor    # type="news"   -> newspaper3k，新闻网站
+ │   ├── ReadabilityExtractor  # type="social" -> readability-lxml，通用降级/知乎专栏
+ │   ├── WeiboExtractor        # type="weibo"  -> weibo.com/ajax/statuses/show API
+ │   └── ZhihuExtractor        # type="zhihu"  -> zhuanlan.zhihu.com + v4/answers
  └── cleaner.py          # 手写去噪脚本 + 标准文档构建
  
  utils/                  #一些用于反爬的策略
@@ -66,13 +67,13 @@
  
  ### 当前已对接的平台
  
- | 平台 | 注册名 | 注册类 | 抽取策略 |
- |------|--------|--------|---------|
- | 新浪新闻 | `sina` | SinaCrawler | `news` (NewspaperExtractor) |
- | 澎湃新闻 | `thepaper` | ThePaperCrawler | `news` (NewspaperExtractor) |
- | 人民网 | `renmin` | RenminCrawler | `news` (NewspaperExtractor) |
- | 微博 | `weibo` | WeiboCrawler | `weibo` (WeiboExtractor) |
- | 知乎 | `zhihu` | ZhihuCrawler | `zhihu` (ZhihuExtractor) |
+| 平台 | 注册名 | 注册类 | 抽取策略 |
+|------|--------|--------|---------|
+| 新浪新闻 | `sina` | SinaCrawler | `news` (NewspaperExtractor) |
+| 澎湃新闻 | `thepaper` | ThePaperCrawler | `news` (NewspaperExtractor) |
+| 人民网 | `renmin` | RenminCrawler | `news` (NewspaperExtractor) |
+| 微博 | `weibo` | WeiboCrawler | `weibo` (WeiboExtractor) |
+| 知乎 | `zhihu` | ZhihuCrawler | `zhihu` (ZhihuExtractor) |
  
  ## 数据库表设计 — 模块产出
  
@@ -90,6 +91,9 @@
  | crawl_time | DATETIME | NOT NULL | 爬虫抓取时间 | **A** |
  | content_hash | VARCHAR(64) | DEFAULT NULL | SimHash 64bit 指纹（给 C 做近似去重和聚合用） | **A** |
  | verification_type | VARCHAR(50) | DEFAULT NULL | 信源认证类型 | **A** |
+ | repost_count | INT | DEFAULT NULL | 转发数（仅微博） | **A** |
+ | like_count | INT | DEFAULT NULL | 点赞/赞同数（微博/知乎） | **A** |
+ | comment_count | INT | DEFAULT NULL | 评论数（微博/知乎） | **A** |
  | sentiment_label | VARCHAR(10) | DEFAULT NULL | 情感标签：正面/负面/中性（C 回填） | **B** |
  | sentiment_score | FLOAT | DEFAULT NULL | 情感置信度 [0, 1]（C 回填） | **B** |
  | keywords | TEXT | DEFAULT NULL | JSON 数组或逗号分隔关键词（C 回填） | **B** |

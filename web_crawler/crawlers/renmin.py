@@ -99,7 +99,7 @@ class RenminCrawler:
             "key": keyword,
             "limit": size,
             "page": page,
-            "sortType": 0,
+            "sortType": 2,
             "startTime": 0,
             "type": 0,
         }

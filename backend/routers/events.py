@@ -114,6 +114,7 @@ class EventDetailData(BaseModel):
     trend: list[dict] = []
     future_trend: list[dict] = []
     authenticity: dict | None = None
+    propagation: dict | None = None
     authenticity_level: str | None = None
     authenticity_label: str | None = None
     authenticity_description: str | None = None
@@ -231,7 +232,7 @@ def event_brief_pdf(
     if data is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="\u4e8b\u4ef6\u4e0d\u5b58\u5728",
+            detail="事件不存在",
         )
     content = generate_event_brief_pdf(data)
     title = sanitize_filename_part(data.get("title"), "未命名事件")
@@ -247,6 +248,6 @@ def event_detail(
     if data is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="\u4e8b\u4ef6\u4e0d\u5b58\u5728",
+            detail="事件不存在",
         )
     return EventDetailResponse(data=data)

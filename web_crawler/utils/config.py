@@ -63,10 +63,8 @@ def _validate(cfg: dict, path: str):
     log.info("配置校验通过: %s", path)
 
 
-
-
 def validate_config(cfg: dict) -> None:
-    """Validate a loaded config dict without loading from file (raises ConfigError)."""
+    """校验已加载的配置字典（不从文件读取），不合法时抛出 ConfigError"""
     _validate(cfg, "(loaded_config)")
 
 

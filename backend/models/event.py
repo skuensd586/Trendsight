@@ -37,6 +37,7 @@ class Event(Base):
     cause = Column(Text, nullable=True)
     people = Column(JSON, nullable=True)
     authenticity = Column(JSON, nullable=True)
+    propagation = Column(JSON, nullable=True)
 
     trend_daily = relationship("EventTrendDaily", back_populates="event", cascade="all, delete-orphan")
     keywords = relationship("EventKeyword", back_populates="event", cascade="all, delete-orphan")

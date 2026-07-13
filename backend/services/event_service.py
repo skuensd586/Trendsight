@@ -19,12 +19,21 @@ def save_event(
     db: Session,
     report: dict,
 ) -> Event:
+    """持久化 Algo 事件分析报告到 events 表及子表。
+
+    Args:
+        db: 数据库会话。
+        report: Algo 返回的事件分析结果字典。
+
+    Returns:
+        已持久化的事件 ORM 对象。
+    """
     now = datetime.now()
 
     # Support both nested lifecycle dict and flat report fields
     lifecycle = report.get("lifecycle", {})
 
-    # === Event 主表 ===
+
     event = Event(
         title=report.get("title", ""),
         heat=report.get("heat", 0.0),
@@ -40,13 +49,11 @@ def save_event(
         updated_at=now,
     )
 
-    # Sentiment
     sentiment = report.get("sentiment", {})
     event.positive = sentiment.get("positive", 0.0)
     event.neutral = sentiment.get("neutral", 0.0)
     event.negative = sentiment.get("negative", 0.0)
 
-    # Stage probability
     stage_prob = lifecycle.get("stage_probability") or report.get("stage_probability", {})
     event.prob_latent = stage_prob.get("latent", 0.0)
     event.prob_growth = stage_prob.get("growth", 0.0)
@@ -60,6 +67,21 @@ def save_event(
     authenticity_val = report.get("authenticity")
     if authenticity_val:
         event.authenticity = authenticity_val
+
+    # Event detail extraction
+    if report.get("summary"):
+        event.summary = report["summary"]
+    if report.get("location"):
+        event.location = report["location"]
+    if report.get("cause"):
+        event.cause = report["cause"]
+    if report.get("people"):
+        event.people = report["people"]
+
+    # Propagation
+    if report.get("propagation"):
+        event.propagation = report["propagation"]
+
     db.add(event)
     db.flush()
 
@@ -144,8 +166,6 @@ def get_events(
         query = query.order_by(Event.heat.is_(None).asc(), Event.heat.desc())
     items = query.offset((page - 1) * size).limit(size).all()
     total_pages = max(1, (total + size - 1) // size) if total > 0 else 0
-
-
     return {
         "items": [
             {
@@ -186,6 +206,11 @@ def get_event_detail(
     db: Session,
     event_id: int,
 ) -> dict | None:
+    """获取事件详情，包含子表数据、相似事件、处置建议和计算字段。
+
+    Returns:
+        dict | None: 事件详情字典，不存在时返回 None。
+    """
     event = db.query(Event).filter(Event.event_id == event_id).first()
     if event is None:
         return None
@@ -274,7 +299,8 @@ def get_event_detail(
             "decline": event.prob_decline,
         },
         "sources": event.sources,
-        'authenticity': event.authenticity,
+        "authenticity": event.authenticity,
+        "propagation": event.propagation,
         'authenticity_level': authenticity_level,
         'authenticity_label': authenticity_label,
         'authenticity_description': authenticity_description,
