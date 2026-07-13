@@ -1,4 +1,4 @@
-"""
+﻿"""
 LLM client — OpenAI-compatible API wrapper.
 
 Reads configuration from config.py (LLM_API_KEY, LLM_BASE_URL, LLM_MODEL).
@@ -13,6 +13,8 @@ _client: OpenAI | None = None
 
 
 def _get_client() -> OpenAI:
+    """获取并缓存 OpenAI 客户端实例。
+    """
     global _client
     if _client is None:
         _client = OpenAI(api_key=LLM_API_KEY, base_url=LLM_BASE_URL)
