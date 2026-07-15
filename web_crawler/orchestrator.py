@@ -12,6 +12,9 @@
     python orchestrator.py "广西洪灾" --platform sina
     python orchestrator.py "广西洪灾" --platform weibo
 
+用法（单关键词全部平台）：
+python orchestrator.py "广西洪灾"
+
 用法（从配置批量运行所有已启用的平台）：
     python orchestrator.py --config
     python orchestrator.py --config --dry-run
@@ -20,8 +23,8 @@ import json
 import argparse
 import time
 from datetime import datetime
-from crawlers import get_crawler
 from crawlers.weibo import url_to_mid
+from crawlers import get_crawler, list_platforms
 from pipeline.extractor import EXTRACTOR_MAP
 from pipeline.cleaner import build_document
 from simhash import Simhash
@@ -104,14 +107,12 @@ def _process_comments(crawler, platform: str, candidate: dict,
 
 
 def run(keyword: str,
-        platform: str = "sina",
+        platform: str,
         limit: int = _DEFAULT_MAX_ARTICLES,
         max_comments: int = _DEFAULT_MAX_COMMENTS,
         dry_run: bool = False,
         engine=None,
-        cookie: str | None = None,
-        sina_cookie: str | None = None,
-        zhihu_cookie: str | None = None,
+        cookie=None,
         crawler=None) -> dict:
     """
     对一个平台的单个关键词执行完整爬取流水线。
@@ -122,8 +123,7 @@ def run(keyword: str,
     max_comments — 每篇帖子最多拉取评论数（仅社交平台）
     dry_run      — 仅测试不入库
     engine       — 外部传入的 SQLAlchemy engine
-    sina_cookie  — 新浪 Cookie（仅 sina 平台使用，微博登录态）
-    zhihu_cookie — 知乎 Cookie（仅 zhihu 平台使用）
+    cookie       — 通用 Cookie（根据平台自动选择）
     crawler      — 外部传入的爬虫实例（None 则内部创建）
     """
     ptag = platform
@@ -132,12 +132,8 @@ def run(keyword: str,
     # 构造爬虫实例
     if crawler is None:
         crawler_kwargs = {}
-        if cookie is not None and platform == "weibo":
+        if cookie is not None:
             crawler_kwargs["cookie"] = cookie
-        if sina_cookie is not None and platform == "sina":
-            crawler_kwargs["cookie"] = sina_cookie
-        if zhihu_cookie is not None and platform == "zhihu":
-            crawler_kwargs["cookie"] = zhihu_cookie
         crawler = get_crawler(platform, **crawler_kwargs)
     extractor = EXTRACTOR_MAP.get(crawler.extractor_type)
     # 微博/知乎：复用爬虫 session，使 cookie 刷新 / 账号轮换自动同步到正文提取
@@ -199,6 +195,62 @@ def run(keyword: str,
     log.info("[%s] 完成。成功 %d 条，跳过 %d 条，失败 %d 条", ptag, success, skip, fail)
     return {"success": success, "skip": skip, "fail": fail}
 
+def run_all_platforms(keyword: str,platforms=None,limit: int = _DEFAULT_MAX_ARTICLES,max_comments: int = _DEFAULT_MAX_COMMENTS,dry_run: bool = False) -> dict:
+    """
+    单关键词，多平台执行爬取。
+    keyword:
+        用户输入关键词
+    platforms:
+        指定平台列表，为空则运行全部注册平台
+    """
+    if platforms is None:
+        platforms = list_platforms()
+    results = {}
+
+    # 尝试读取配置，按平台获取各自的数据量设置
+    try:
+        _cfg = load_and_validate_config()["crawler"]
+    except (FileNotFoundError, json.JSONDecodeError, ConfigError):
+        _cfg = {}
+
+    cookies = {
+        "weibo": os.getenv("WEIBO_COOKIE"),
+        "sina": os.getenv("SINA_COOKIE"),
+        "zhihu": os.getenv("ZHIHU_COOKIE")
+    }
+
+    engine=None if dry_run else create_db_engine()
+    try:
+        for platform in platforms:
+            pc = _cfg.get(platform, {})
+            plat_limit = pc.get("max_articles_per_keyword", limit)
+            plat_max_comments = pc.get("max_comments_per_article", max_comments)
+            log.info("开始执行平台: %s, keyword=%s, limit=%d, max_comments=%d",
+                     platform, keyword, plat_limit, plat_max_comments)
+            try:
+                result = run(
+                    keyword=keyword,
+                    platform=platform,
+                    limit=plat_limit,
+                    max_comments=plat_max_comments,
+                    dry_run=dry_run,
+                    cookie=cookies.get(platform),
+                    engine=engine
+                )
+                results[platform] = result
+
+            except Exception as e:
+                log.error("%s 平台执行失败: %s",platform,e)
+                results[platform] = {
+                    "success":0,
+                    "skip":0,
+                    "fail":0,
+                    "error":str(e)
+                }
+    finally:
+        if engine is not None:
+            engine.dispose()
+    return results
 
 def run_all_from_config(dry_run: bool = False,
                         platforms_override: list[str] | None = None) -> dict:
@@ -259,16 +311,23 @@ def run_all_from_config(dry_run: bool = False,
 
             consecutive_empty = 0
             for kw in keywords:
+                if pname == "weibo":
+                    cookie = weibo_cookie
+                elif pname == "sina":
+                    cookie = sina_cookie
+                elif pname == "zhihu":
+                    cookie = zhihu_cookie
+                else:
+                    cookie = None
                 result = run(
                     keyword=kw,
                     platform=pname,
                     limit=limit,
                     max_comments=max_comments,
                     dry_run=dry_run,
-                    cookie=weibo_cookie,
-                    sina_cookie=sina_cookie,
-                    zhihu_cookie=zhihu_cookie,
+                    cookie=cookie,
                     crawler=crawler,
+                    engine=engine
                 )
                 platform_results[kw] = result
                 # 连续多个关键词都 0 成功 0 失败（即搜索直接没有候选），
@@ -287,7 +346,7 @@ def run_all_from_config(dry_run: bool = False,
 
             results[pname] = platform_results
     finally:
-        if engine:
+        if engine is not None:
             engine.dispose()
 
     return results
@@ -312,37 +371,53 @@ if __name__ == "__main__":
             log.error("配置校验失败，已终止: %s", e)
             raise SystemExit(1)
     elif args.keyword:
-        # 单平台单关键词：从配置读取该平台的默认值，CLI 参数可覆盖
-        _platform = args.platform or "sina"
+        _platform = args.platform
         _limit = args.limit
         _max_comments = args.max_comments
-        _cookie = None
-        _sina_cookie = None
-        _zhihu_cookie = None
-
+        # 尝试读取配置，仅用于获取平台参数
         try:
             _cfg = load_and_validate_config()["crawler"]
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            log.warning("读取配置失败(%s)，使用默认参数",e)
+            _cfg = {}
+        # =========================
+        # 1. 指定平台运行
+        # 例如:
+        # python orchestrator.py 广西洪灾 --platform weibo
+        # =========================
+        if _platform:
             _pc = _cfg.get(_platform, {})
             if _limit is None:
-                _limit = _pc.get("max_articles_per_keyword", _DEFAULT_MAX_ARTICLES)
+                _limit = _pc.get("max_articles_per_keyword",_DEFAULT_MAX_ARTICLES)
             if _max_comments is None:
-                _max_comments = _pc.get("max_comments_per_article", _DEFAULT_MAX_COMMENTS)
-            _cookie = os.getenv("WEIBO_COOKIE")
-            _sina_cookie = os.getenv("SINA_COOKIE")
-            _zhihu_cookie = os.getenv("ZHIHU_COOKIE")
-        except ConfigError as e:
-            log.error("配置校验失败，已终止: %s", e)
-            raise SystemExit(1)
-        except (FileNotFoundError, json.JSONDecodeError) as e:
-            log.warning("读取配置失败（%s），使用内置默认值", e)
-            if _limit is None:
-                _limit = _DEFAULT_MAX_ARTICLES
-            if _max_comments is None:
-                _max_comments = _DEFAULT_MAX_COMMENTS
-
-        run(args.keyword, platform=_platform,
-            limit=_limit, max_comments=_max_comments,
-            dry_run=args.dry_run, cookie=_cookie, sina_cookie=_sina_cookie,
-            zhihu_cookie=_zhihu_cookie)
+                _max_comments = _pc.get("max_comments_per_article",_DEFAULT_MAX_COMMENTS)
+            if _platform == "weibo":
+                _cookie = os.getenv("WEIBO_COOKIE")
+            elif _platform == "sina":
+                _cookie = os.getenv("SINA_COOKIE")
+            elif _platform == "zhihu":
+                _cookie = os.getenv("ZHIHU_COOKIE")
+            else:
+                _cookie = None  
+            run(
+                args.keyword,
+                platform=_platform,
+                limit=_limit,
+                max_comments=_max_comments,
+                dry_run=args.dry_run,
+                cookie=_cookie
+            )
+        # =========================
+        # 2. 未指定平台，运行全部平台
+        # 例如:
+        # python orchestrator.py 广西洪灾
+        # =========================
+        else:
+            run_all_platforms(
+                keyword=args.keyword,
+                limit=_limit or _DEFAULT_MAX_ARTICLES,
+                max_comments=_max_comments or _DEFAULT_MAX_COMMENTS,
+                dry_run=args.dry_run
+            )
     else:
         parser.print_help()

@@ -27,7 +27,6 @@ def list_platforms() -> list[str]:
     """列出已注册的平台名称"""
     return list(_REGISTRY.keys())
 
-
 # 确保所有爬虫模块在导入时完成注册
 from crawlers import sina  # noqa: F401
 from crawlers import weibo  # noqa: F401
