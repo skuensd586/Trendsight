@@ -11,6 +11,7 @@ or pre-tagged crawler output) and produces one such report per event.
 """
 from __future__ import annotations
 
+import re
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from typing import Any
@@ -121,6 +122,27 @@ def _risk_level(heat: float, sentiment: dict[str, float]) -> str:
     return "low"
 
 
+def _event_title(docs: list[Document]) -> str:
+    """Pick a clean news headline as the event title.
+
+    An event cluster mixes news articles and social posts; a social post's `title` is
+    often its whole rambling body text, which reads badly as an event title.  Prefer an
+    article-type (news) document, and among those the shortest reasonable headline —
+    news headlines are concise, truncated social bodies are not.
+    """
+    if not docs:
+        return ""
+    titled = [d for d in docs if d.title.strip()] or docs
+    articles = [d for d in titled if d.text_type == "article"]
+    candidates = articles or titled
+    reasonable = [d for d in candidates if len(d.title.strip()) >= 8] or candidates
+    chosen = min(reasonable, key=lambda d: len(d.title.strip())).title
+    return _URL_RE.sub("", chosen).strip()
+
+
+_URL_RE = re.compile(r"https?://\S+")
+
+
 def _recent_window(publish_times: list[datetime], window_days: float) -> list[datetime]:
     """Trim archive-dated outliers: keep only reports within `window_days` of the most
     recent one.  Crawler search results sometimes include years-old articles that merely
@@ -197,7 +219,7 @@ def analyze_event(
 
     report: dict[str, Any] = {
         "event_id": raws[0]["event_id"] if raws else None,
-        "title": docs[0].title if docs else "",
+        "title": _event_title(docs),
         "report_count": len(docs),
         "duplicate_count": duplicate_count,
         "heat": heat,
