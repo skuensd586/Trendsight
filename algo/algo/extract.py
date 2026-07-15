@@ -19,7 +19,7 @@ Output shape (added to each event report):
 from __future__ import annotations
 
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 from typing import TYPE_CHECKING, Any
 
 import jieba.posseg as pseg
@@ -29,14 +29,35 @@ if TYPE_CHECKING:
 
 # Sentence boundaries for Chinese + latin punctuation and newlines.
 _SENT_SPLIT = re.compile(r"[。！？!?；;\n]+")
-# How much of each post body to scan for NER — titles + leads carry the entities;
-# scanning full bodies of hundreds of posts is slow and adds tail noise.
-_NER_CHARS = 200
+# How much of each post body to scan for NER.  Wide enough that the tag histogram sees a
+# word used several ways (雷雨 as weather, 覃塘区 as a place) so `_select_people` can reject
+# it, but not the full body of hundreds of posts, which is slow and adds tail noise.
+_NER_CHARS = 500
 # Place/person names shorter than this are almost always false positives (single chars).
 _MIN_NAME_LEN = 2
-# jieba POS tags treated as place / person names.
+# jieba POS tags treated as place / person / organisation names.
 _PLACE_TAGS = {"ns"}
 _PERSON_TAGS = {"nr", "nrt"}
+_ORG_TAGS = {"nt"}
+# Words introducing a storm's name.  Typhoon names are transliterations (美莎克 = Maysak),
+# so no spelling rule separates them from人名 — but they are always introduced by one of
+# these, and the word right after is the storm, not a person.
+_STORM_INTRODUCERS = ("台风", "超强台风", "强台风", "热带风暴", "飓风")
+# Quotes sit between the introducer and the name (台风“美莎克”), so they must not count
+# as the preceding word.
+_SKIP_WHEN_TRACKING = frozenset('“”"\'‘’《》「」（）()： :')
+# An administrative suffix makes a word a place regardless of how jieba tagged it.
+_PLACE_SUFFIXES = ("省", "市", "区", "县", "镇", "乡", "村", "州", "路", "街道", "水库")
+# Meteorological/common nouns jieba habitually mistags `nr` in disaster coverage.
+_NON_PERSON_WORDS = frozenset({
+    "雷雨", "雷阵雨", "厄尔尼诺", "拉尼娜", "高中生", "大学生", "小学生", "谢谢你们",
+})
+# Share of a word's sightings that must be person-tagged for it to count as a name.
+_PERSON_TAG_DOMINANCE = 0.6
+# How much of a document counts as its "lead" when scoring on-topic-ness.
+_LEAD_CHARS = 300
+# A cause sentence shorter than this is a slogan or a title fragment, not an explanation.
+_MIN_CAUSE_LEN = 12
 # Author strings that are outlets, not people — never surface these as "涉及人物".
 _MEDIA_AUTHORS = frozenset({
     "央视新闻", "新华社", "人民日报", "澎湃新闻", "环球时报", "中国新闻网",
@@ -72,56 +93,124 @@ def _sentences(text: str) -> list[str]:
     return [s.strip() for s in _SENT_SPLIT.split(text or "") if len(s.strip()) >= 6]
 
 
+def _lead_relevance(doc: Document, keyset: set[str]) -> int:
+    """How many distinct event keywords the document's lead region mentions."""
+    head = (doc.title + "。" + doc.content)[:_LEAD_CHARS]
+    return sum(1 for kw in keyset if kw in head)
+
+
+def _news_first(docs: list[Document]) -> list[Document]:
+    """News articles only, falling back to everything when the event is social-only.
+
+    A news article's opening is a written lead; a social post's opening is a slogan, a
+    hashtag or a reaction, which makes a poor summary or cause.
+    """
+    return [d for d in docs if d.text_type == "article"] or list(docs)
+
+
 def _summary(docs: list[Document], keyword_words: list[str], max_sentences: int) -> str:
-    """Lead-N extractive summary: score candidate sentences by how many event keywords
-    they contain, return the top `max_sentences` joined by 。 (ties broken by order)."""
-    keyset = set(keyword_words)
-    candidates: list[tuple[int, int, str]] = []  # (-score, order, sentence)
-    order = 0
-    seen: set[str] = set()
-    for doc in docs:
-        for sent in _sentences(doc.title + "。" + doc.content):
-            if sent in seen:
-                continue
-            seen.add(sent)
-            score = sum(1 for kw in keyset if kw in sent)
-            candidates.append((-score, order, sent))
-            order += 1
-    if not candidates:
-        return docs[0].title if docs else ""
-    # Best-scoring first; keep only those with any keyword hit, else fall back to lead.
-    candidates.sort()
-    picked = [c for c in candidates if -c[0] > 0][:max_sentences]
-    if not picked:
-        picked = candidates[:max_sentences]
-    # Restore reading order (by original position) for a coherent abstract.
-    picked.sort(key=lambda c: c[1])
-    return "。".join(s for _, _, s in picked) + "。"
+    """Use the lead paragraph of the single most on-topic news article as the summary.
 
-
-def _cause(docs: list[Document]) -> str:
-    """Opening sentence of the earliest-published post — the triggering report."""
+    A news lead is itself a 5W1H précis, so contiguous text from one article reads as a
+    coherent abstract.  (Collaging the top-scoring sentences from many documents — the
+    previous approach — scored well on keyword coverage but produced a disjointed jumble
+    of mid-article fragments.)
+    """
     if not docs:
         return ""
+    keyset = set(keyword_words)
+    candidates = _news_first(docs)
+    best = max(candidates, key=lambda d: (_lead_relevance(d, keyset), len(d.content)))
+    sents = _sentences(best.content) or _sentences(best.title)
+    return "。".join(sents[:max_sentences]) + "。" if sents else best.title
+
+
+def _cause(docs: list[Document], keyword_words: list[str]) -> str:
+    """Lead sentence of the earliest on-topic news report — the report that framed the event.
+
+    Not simply the earliest post: crawler search results carry archive articles that merely
+    matched the keyword, and social posts open with slogans, so both need filtering out.
+    """
+    if not docs:
+        return ""
+    keyset = set(keyword_words)
+    for doc in sorted(_news_first(docs), key=lambda d: d.publish_time):
+        for sent in _sentences(doc.content)[:2]:
+            if len(sent) >= _MIN_CAUSE_LEN and any(kw in sent for kw in keyset):
+                return sent + "。"
     earliest = min(docs, key=lambda d: d.publish_time)
-    sents = _sentences(earliest.title + "。" + earliest.content)
+    sents = _sentences(earliest.content) or _sentences(earliest.title)
     return sents[0] + "。" if sents else earliest.title
 
 
-def _entities(docs: list[Document]) -> tuple[Counter, Counter]:
-    """Frequency of place names and person names across post titles + leads."""
+def _is_translit_fragment(word: str) -> bool:
+    """A person-tagged token that starts with no Chinese surname — i.e. a piece of a
+    transliterated name rather than a complete Chinese one."""
+    return bool(word) and word[0] not in _SURNAMES and len(word) <= 3
+
+
+def _merge_person_runs(tagged: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """Rejoin transliterated names that jieba split across tokens (斯卡洛尼 → 斯卡 + 洛尼).
+
+    Only fragments are merged, never two complete Chinese names: adjacent `nr` tokens are
+    just as often two *different* people (「#王一博##肖战#」 → 王一博 + 肖战), and merging
+    those fabricates a person who doesn't exist.  A Chinese name starts with a surname and
+    jieba already segments it correctly, so surname-initial tokens are left alone.
+    """
+    merged: list[tuple[str, str]] = []
+    i = 0
+    while i < len(tagged):
+        word, flag = tagged[i]
+        if flag in _PERSON_TAGS and _is_translit_fragment(word):
+            j = i + 1
+            while (
+                j < len(tagged)
+                and tagged[j][1] in _PERSON_TAGS
+                and _is_translit_fragment(tagged[j][0])
+                and len(word) + len(tagged[j][0]) <= 5
+            ):
+                word += tagged[j][0]
+                j += 1
+            merged.append((word, "nr"))
+            i = j
+        else:
+            merged.append((word, flag))
+            i += 1
+    return merged
+
+
+def _entities(docs: list[Document]) -> tuple[Counter, Counter, dict[str, Counter]]:
+    """Place/person name frequencies plus each word's full part-of-speech tag histogram.
+
+    The tag histogram is what lets `_select_people` reject words jieba only *sometimes*
+    calls a person (高盛 as an org, 覃塘区 as a place) — a single `nr` sighting is not
+    enough evidence on its own.
+    """
     places: Counter[str] = Counter()
     people: Counter[str] = Counter()
+    tag_counts: dict[str, Counter] = defaultdict(Counter)
     for doc in docs:
         text = (doc.title + " " + doc.content)[: _NER_CHARS]
-        for word, flag in pseg.cut(text):
+        tagged = _merge_person_runs([(w.word, w.flag) for w in pseg.cut(text)])
+        previous = ""
+        for word, flag in tagged:
+            if word.strip() and all(ch in _SKIP_WHEN_TRACKING for ch in word):
+                continue  # quotes/brackets: keep `previous` pointing at the real word
             if len(word) < _MIN_NAME_LEN:
+                previous = word
                 continue
-            if flag in _PLACE_TAGS:
-                places[word] += 1
-            elif flag in _PERSON_TAGS and word not in _MEDIA_AUTHORS:
-                people[word] += 1
-    return places, people
+            # A storm name sits right after 台风/飓风; record it as a non-person reading so
+            # the tag histogram outvotes any stray `nr` sighting elsewhere.
+            if previous.endswith(_STORM_INTRODUCERS):
+                tag_counts[word]["storm"] += 1
+            else:
+                tag_counts[word][flag] += 1
+                if flag in _PLACE_TAGS:
+                    places[word] += 1
+                elif flag in _PERSON_TAGS and word not in _MEDIA_AUTHORS:
+                    people[word] += 1
+            previous = word
+    return places, people, tag_counts
 
 
 def _dedupe_substrings(names: list[str]) -> list[str]:
@@ -147,14 +236,14 @@ def extract_event_details(
         return {"summary": "", "cause": "", "location": None, "people": []}
 
     keyword_words = [kw["word"] for kw in (keywords or [])]
-    places, people = _entities(docs)
+    places, people, tag_counts = _entities(docs)
 
     location_list = _dedupe_substrings([w for w, _ in places.most_common()])[:top_locations]
-    people_list = _select_people(people, places, set(keyword_words), top_people)
+    people_list = _select_people(people, places, tag_counts, set(keyword_words), top_people)
 
     return {
         "summary": _summary(docs, keyword_words, max_summary_sentences),
-        "cause": _cause(docs),
+        "cause": _cause(docs, keyword_words),
         "location": "、".join(location_list) if location_list else None,
         "people": people_list,
     }
@@ -163,27 +252,38 @@ def extract_event_details(
 def _select_people(
     people: Counter,
     places: Counter,
+    tag_counts: dict[str, Counter],
     keyword_set: set[str],
     top_people: int,
 ) -> list[str]:
     """Filter jieba's noisy `nr` candidates into a clean 涉及人物 list.
 
-    jieba routinely mistags domain terms (洪水、白银、强降雨) and org names as person
-    names.  Two cheap, general filters remove most of the noise:
-      * drop candidates that are event keywords (topic terms, never "people"), and
-      * drop candidates jieba also tagged as a place (ambiguous → treat as location).
-    Prefer names mentioned in ≥2 posts (one-off mistags rarely repeat); fall back to
-    single mentions only if that leaves nothing.
+    jieba readily mistags domain terms (洪水、白银、利多), typhoon names, orgs (高盛) and
+    places (覃塘区) as person names.  Four filters, each rejecting a distinct error class:
+      * event keywords are topic terms, never "people";
+      * a word jieba *ever* tagged as a place or an org is not a person, whatever it was
+        tagged elsewhere;
+      * `nr` must be the dominant reading of the word, not an occasional slip;
+      * it must look like a name — a Chinese surname start, or a transliteration.
+    Prefer names seen in ≥2 posts (one-off mistags rarely repeat), relaxing only if that
+    leaves nothing.
     """
     def _is_name(w: str) -> bool:
-        if w in keyword_set or w in places:
+        if w in keyword_set or w in places or w in _NON_PERSON_WORDS:
             return False
-        # Chinese personal name: 2–3 chars starting with a common surname.
-        if 2 <= len(w) <= 3 and w[0] in _SURNAMES:
+        if w.endswith(_PLACE_SUFFIXES):
+            return False
+        tags = tag_counts.get(w, Counter())
+        if any(tags[t] for t in _ORG_TAGS | _PLACE_TAGS) or tags["storm"]:
+            return False
+        total = sum(tags.values())
+        if total and sum(tags[t] for t in _PERSON_TAGS) / total < _PERSON_TAG_DOMINANCE:
+            return False
+        # Chinese personal name: 2–4 chars starting with a common surname.
+        if 2 <= len(w) <= 4 and w[0] in _SURNAMES:
             return True
-        # Transliterated foreign name (梅西/特朗普/恩佐): no CJK surname, so allow short
-        # all-CJK tokens that jieba tagged nr but that aren't dictionary-like place words.
-        return 2 <= len(w) <= 4 and w[0] not in _SURNAMES and _looks_foreign(w)
+        # Transliterated foreign name (梅西/特朗普/斯卡洛尼): no CJK surname.
+        return 2 <= len(w) <= 5 and w[0] not in _SURNAMES and _looks_foreign(w)
 
     def _pick(min_count: int) -> list[str]:
         return [w for w, c in people.most_common() if c >= min_count and _is_name(w)]

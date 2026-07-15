@@ -215,7 +215,10 @@ def analyze_event(
     dup_rate = duplicate_count / max(len(docs) + duplicate_count, 1)
 
     keywords = _keywords(corpus_tokens, top_k_keywords)
-    details = extract_event_details(docs, keywords)
+    # Detail fields read from the recent window too: the globally-earliest post is often an
+    # archive article the crawler's keyword search happened to match, which would otherwise
+    # be mistaken for the event's triggering report.
+    details = extract_event_details(timeline_docs or docs, keywords)
 
     report: dict[str, Any] = {
         "event_id": raws[0]["event_id"] if raws else None,
