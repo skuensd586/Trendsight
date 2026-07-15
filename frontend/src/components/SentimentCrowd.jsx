@@ -11,7 +11,7 @@ export default function SentimentCrowd({ sentiment }) {
 
   return (
     <div className="sentiment-panel">
-      <div className="people-grid" aria-label="情感倾向比例图">
+      <div className="people-grid" aria-label="情绪占比图">
         {figures.map((type, index) => (
           <span className={`person ${type}`} key={`${type}-${index}`}>
             <i />
@@ -19,9 +19,9 @@ export default function SentimentCrowd({ sentiment }) {
         ))}
       </div>
       <div className="sentiment-values">
-        <span className="positive">积极 {sentiment.positive}%</span>
+        <span className="positive">正向 {sentiment.positive}%</span>
         <span className="neutral">中性 {sentiment.neutral}%</span>
-        <span className="negative">消极 {sentiment.negative}%</span>
+        <span className="negative">负向 {sentiment.negative}%</span>
       </div>
     </div>
   );

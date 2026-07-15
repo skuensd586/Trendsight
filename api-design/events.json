@@ -523,8 +523,8 @@
             "description": "事件直接起因（来源待确认：后续可由大模型生成）"
           },
           "people": {
-            "type": "string",
-            "description": "涉事主体（来源待确认：后续可由算法模块提取）"
+            "type": "array",
+            "description": "涉事主体列表，由算法事件详情抽取模块提取"
           },
           "heat": {
             "type": "float",
@@ -663,6 +663,24 @@
               "checks": {
                 "type": "array",
                 "description": "真实性检查"
+              }
+            }
+          },
+          "propagation": {
+            "type": "object",
+            "description": "传播分析结果，由算法关键传播节点检测模块输出",
+            "fields": {
+              "key_nodes": {
+                "type": "array",
+                "description": "按时间排序的关键传播节点，例如初始爆料、首次大V发声、首次官方媒体介入、传播高峰"
+              },
+              "top_influencers": {
+                "type": "array",
+                "description": "按互动影响力排序的高影响账号"
+              },
+              "platform_chain": {
+                "type": "object",
+                "description": "平台首次出现顺序形成的平台级传播路径，含 nodes 与 links"
               }
             }
           },

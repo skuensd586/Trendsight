@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import binascii
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
@@ -11,15 +13,25 @@ from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
+from reportlab.lib.utils import ImageReader
+from reportlab.platypus import Image as RLImage
+from reportlab.platypus import KeepTogether
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
 
 FONT_NAME = "Helvetica"
+MAX_CHART_BYTES = 6 * 1024 * 1024
+REGISTERED_FONT_NAME: str | None = None
 
 
 def _register_chinese_font() -> str:
+    global REGISTERED_FONT_NAME
+
+    if REGISTERED_FONT_NAME:
+        return REGISTERED_FONT_NAME
+
     candidates = [
         Path("C:/Windows/Fonts/simhei.ttf"),
         Path("C:/Windows/Fonts/NotoSansSC-VF.ttf"),
@@ -27,9 +39,14 @@ def _register_chinese_font() -> str:
     ]
     for path in candidates:
         if path.exists():
-            pdfmetrics.registerFont(TTFont("TrendsightCN", str(path)))
-            return "TrendsightCN"
-    return FONT_NAME
+            font_name = "TrendsightCN"
+            if font_name not in pdfmetrics.getRegisteredFontNames():
+                pdfmetrics.registerFont(TTFont(font_name, str(path)))
+            REGISTERED_FONT_NAME = font_name
+            return REGISTERED_FONT_NAME
+
+    REGISTERED_FONT_NAME = FONT_NAME
+    return REGISTERED_FONT_NAME
 
 
 def _styles():
@@ -120,6 +137,54 @@ def _percent(value: Any) -> str:
     return f"{number:.1f}%"
 
 
+def _advice_text(value: Any) -> str:
+    if isinstance(value, dict):
+        parts = [
+            value.get("risk_assessment") or value.get("riskAssessment"),
+            value.get("verification"),
+            value.get("response_strategy") or value.get("responseStrategy"),
+        ]
+        text = " ".join(str(part).strip() for part in parts if part)
+        return text or "暂无处置建议。"
+    return _text(value, "建议优先核验官方通报来源，持续关注高传播账号扩散情况，并对低可信度说法进行辟谣标注。")
+
+
+def _propagation_items(propagation: Any) -> list[str]:
+    if not isinstance(propagation, dict):
+        return ["暂无传播节点数据。"]
+
+    items = []
+    key_nodes = propagation.get("key_nodes") or propagation.get("keyNodes") or []
+    for node in key_nodes[:5]:
+        if not isinstance(node, dict):
+            continue
+        role = _text(node.get("role"), "传播节点")
+        author = _text(node.get("author"), "匿名")
+        platform = _text(node.get("platform"), "未知平台")
+        publish_time = _text(node.get("publish_time") or node.get("publishTime"), "时间未知")
+        items.append(f"{role}：{author}（{platform}，{publish_time}）")
+
+    top_influencers = propagation.get("top_influencers") or propagation.get("topInfluencers") or []
+    for item in top_influencers[:3]:
+        if not isinstance(item, dict):
+            continue
+        author = _text(item.get("author"), "匿名")
+        platform = _text(item.get("platform"), "未知平台")
+        influence = _text(item.get("influence"), "0")
+        items.append(f"高影响账号：{author}（{platform}，影响力 {influence}）")
+
+    return items or ["暂无传播节点数据。"]
+
+
+def _platform_chain_text(propagation: Any) -> str:
+    if not isinstance(propagation, dict):
+        return "暂无平台传播路径。"
+    platform_chain = propagation.get("platform_chain") or propagation.get("platformChain") or {}
+    nodes = (platform_chain.get("nodes") if isinstance(platform_chain, dict) else []) or []
+    names = [node.get("name") for node in nodes if isinstance(node, dict) and node.get("name")]
+    return "平台路径：" + " → ".join(names) if names else "暂无平台传播路径。"
+
+
 def _p(value: Any, style) -> Paragraph:
     return Paragraph(escape(_text(value)), style)
 
@@ -149,6 +214,56 @@ def _table(rows: list[list[Any]], styles, widths: list[float] | None = None) -> 
         )
     )
     return table
+
+
+def _decode_chart_data_url(data_url: Any) -> bytes | None:
+    if not isinstance(data_url, str) or "," not in data_url:
+        return None
+    header, encoded = data_url.split(",", 1)
+    if "base64" not in header or not any(token in header for token in ("image/png", "image/jpeg", "image/jpg")):
+        return None
+    try:
+        raw = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError):
+        return None
+    if not raw or len(raw) > MAX_CHART_BYTES:
+        return None
+    return raw
+
+
+def _chart_flowables(charts: list[dict], styles, max_width: float) -> list:
+    flowables = []
+    for chart in charts[:8]:
+        if not isinstance(chart, dict):
+            continue
+        raw = _decode_chart_data_url(chart.get("data_url") or chart.get("dataUrl"))
+        if not raw:
+            continue
+        try:
+            reader = ImageReader(BytesIO(raw))
+            image_width, image_height = reader.getSize()
+        except Exception:
+            continue
+        if image_width <= 0 or image_height <= 0:
+            continue
+
+        max_height = 88 * mm
+        scale = min(max_width / image_width, max_height / image_height)
+        display_width = image_width * scale
+        display_height = image_height * scale
+        title = _text(chart.get("title"), "图表")
+
+        flowables.append(
+            KeepTogether(
+                [
+                    Paragraph(escape(title), styles["BriefSmall"]),
+                    Spacer(1, 3),
+                    RLImage(BytesIO(raw), width=display_width, height=display_height),
+                    Spacer(1, 8),
+                ]
+            )
+        )
+    return flowables
 
 
 def _build_pdf(title: str, subtitle: str, meta_rows: list[list[Any]], metrics: list[list[Any]], sections: list[dict]) -> bytes:
@@ -185,6 +300,8 @@ def _build_pdf(title: str, subtitle: str, meta_rows: list[list[Any]], metrics: l
         if section.get("items"):
             item_rows = [["序号", "内容"], *[[index + 1, item] for index, item in enumerate(section["items"])]]
             story.append(_table(item_rows, styles, [14 * mm, 146 * mm]))
+        if section.get("charts"):
+            story.extend(_chart_flowables(section["charts"], styles, doc.width))
 
     story.append(Spacer(1, 16))
     story.append(Paragraph("由 Trendsight 自动生成", styles["BriefSmall"]))
@@ -240,13 +357,14 @@ def generate_dashboard_brief_pdf(data: dict, filters: dict) -> bytes:
     )
 
 
-def generate_event_brief_pdf(event: dict) -> bytes:
+def generate_event_brief_pdf(event: dict, charts: list[dict] | None = None) -> bytes:
     timestamp = build_timestamp()
     sentiment = event.get("sentiment") or {}
     platforms = event.get("platform_distribution") or []
     keywords = event.get("keywords") or []
     trend_daily = event.get("trend_daily") or []
     authenticity = event.get("authenticity") or {}
+    propagation = event.get("propagation") or {}
     people = event.get("people") or {}
 
     metrics = [
@@ -257,6 +375,16 @@ def generate_event_brief_pdf(event: dict) -> bytes:
         ["真实性置信", _percent(authenticity.get("credibility_score", event.get("confidence"))), "真实性检测综合分"],
         ["重复率", _percent(event.get("duplicate_rate")), "重复文本占比"],
     ]
+
+    chart_sections = []
+    if charts is not None:
+        chart_sections.append(
+            {
+                "title": "图表快照",
+                "paragraphs": [] if charts else ["本次导出未收到前端图表快照。"],
+                "charts": charts or [],
+            }
+        )
 
     sections = [
         {
@@ -292,6 +420,12 @@ def generate_event_brief_pdf(event: dict) -> bytes:
                 f"{'包含预测数据，建议持续观察后续走势。' if any(item.get('is_predicted') for item in trend_daily) else '以实际观测数据为主。'}"
             ],
         },
+        *chart_sections,
+        {
+            "title": "传播线索",
+            "paragraphs": [_platform_chain_text(propagation)],
+            "items": _propagation_items(propagation),
+        },
         {
             "title": "虚假文本检测",
             "rows": [
@@ -303,10 +437,7 @@ def generate_event_brief_pdf(event: dict) -> bytes:
         },
         {
             "title": "处置建议",
-            "paragraphs": [
-                event.get("advice")
-                or "建议优先核验官方通报来源，持续关注高传播账号扩散情况，并对低可信度说法进行辟谣标注。"
-            ],
+            "paragraphs": [_advice_text(event.get("advice"))],
         },
     ]
 

@@ -3,23 +3,23 @@ import { BellRing, Bot, ChartNoAxesCombined, DatabaseZap, Radar } from 'lucide-r
 
 const features = [
   {
-    title: '多源采集',
-    desc: '接入新闻、社交平台与论坛社区，形成统一事件数据池。',
+    title: '多平台监测',
+    desc: '把新闻、社交平台和论坛内容按事件归集，方便统一查看。',
     icon: DatabaseZap,
   },
   {
     title: '风险预警',
-    desc: '结合热度、情绪与真实性置信度，识别高风险舆情。',
+    desc: '按热度、负面占比和可信度标出需要优先处理的事件。',
     icon: BellRing,
   },
   {
     title: '趋势分析',
-    desc: '用 ECharts 展示传播趋势、平台占比和情感分布。',
+    desc: '查看报道量、平台来源和情绪变化，判断事件走势。',
     icon: ChartNoAxesCombined,
   },
   {
-    title: '智能问答',
-    desc: '围绕当前事件进行摘要、追问和辅助研判。',
+    title: '事件问答',
+    desc: '围绕当前事件追问起因、风险和处置建议。',
     icon: Bot,
   },
 ];
@@ -39,7 +39,7 @@ export default function LandingPage() {
             登录
           </Link>
           <Link to="/register" className="solid-link">
-            注册
+              创建账号
           </Link>
         </div>
       </header>
@@ -58,7 +58,7 @@ export default function LandingPage() {
               <i />
             </div>
             <div className="signal-list">
-              <b>实时热点</b>
+              <b>当前热点</b>
               <span>热度 94</span>
               <span>风险 高</span>
               <span>负面 24%</span>
@@ -66,14 +66,13 @@ export default function LandingPage() {
           </div>
         </div>
         <div className="hero-copy">
-          <p className="eyebrow">Network Public Opinion Intelligence</p>
           <h1>Trendsight</h1>
           <p>
-            面向突发公共事件与社会热点话题的网络舆情事件智能分析系统，帮助快速发现热点、识别风险、追踪传播并生成分析报告。
+            用于监测突发公共事件和社会热点。你可以先看高风险事件，再查看传播、情绪、可信度和处置建议。
           </p>
           <div className="hero-actions">
             <Link to="/login" className="primary-cta">
-              进入系统
+              进入看板
             </Link>
             <Link to="/register" className="secondary-cta">
               创建账号
@@ -82,7 +81,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section className="feature-grid" aria-label="系统功能介绍">
+      <section className="feature-grid" aria-label="主要功能">
         {features.map((feature) => {
           const Icon = feature.icon;
           return (

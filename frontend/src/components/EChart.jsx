@@ -1,66 +1,54 @@
 import { useEffect, useRef } from 'react';
 import * as echarts from 'echarts/core';
-import { BarChart, EffectScatterChart, GraphChart, LineChart, MapChart, PieChart, SankeyChart, ScatterChart, ThemeRiverChart, TreemapChart } from 'echarts/charts';
+import { BarChart, GraphChart, LineChart, LinesChart, PieChart, ScatterChart, TreemapChart } from 'echarts/charts';
 import {
-  GeoComponent,
   GridComponent,
   LegendComponent,
   MarkAreaComponent,
   MarkLineComponent,
   MarkPointComponent,
-  SingleAxisComponent,
   TitleComponent,
-  TimelineComponent,
   TooltipComponent,
-  VisualMapComponent,
 } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
-import chinaGeo from '../data/chinaGeo.json';
 
 echarts.use([
   BarChart,
-  EffectScatterChart,
-  GeoComponent,
   GraphChart,
   GridComponent,
   LegendComponent,
   LineChart,
-  MapChart,
+  LinesChart,
   MarkAreaComponent,
   MarkLineComponent,
   MarkPointComponent,
   PieChart,
-  SankeyChart,
   ScatterChart,
-  SingleAxisComponent,
   TitleComponent,
-  TimelineComponent,
-  ThemeRiverChart,
   TreemapChart,
   TooltipComponent,
-  VisualMapComponent,
   CanvasRenderer,
 ]);
 
-echarts.registerMap('china', chinaGeo);
-
-export default function EChart({ option, className = '', style }) {
+export default function EChart({ option, className = '', style, onReady }) {
   const chartRef = useRef(null);
   const instanceRef = useRef(null);
 
   useEffect(() => {
     if (!chartRef.current) return undefined;
     instanceRef.current = echarts.init(chartRef.current, null, { renderer: 'canvas' });
+    onReady?.(instanceRef.current);
 
     const handleResize = () => instanceRef.current?.resize();
     window.addEventListener('resize', handleResize);
 
     return () => {
       window.removeEventListener('resize', handleResize);
+      onReady?.(null);
       instanceRef.current?.dispose();
       instanceRef.current = null;
     };
-  }, []);
+  }, [onReady]);
 
   useEffect(() => {
     if (instanceRef.current && option) {

@@ -1,63 +1,69 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { Bell, CircleUserRound, LayoutDashboard, MessageSquareText, Radar } from 'lucide-react';
-import { api } from '../api/index.js';
-import { events } from '../data/events.js';
 
-export default function AppShell({ children, wide = false }) {
+export default function AppShell({ children, wide = false, topbarAction = null }) {
   const navigate = useNavigate();
   const user = localStorage.getItem('trendsight-user') || 'analyst';
-  const fallbackTopEvents = useMemo(() => [...events].sort((first, second) => second.heat - first.heat).slice(0, 5), []);
-  const [topEvents, setTopEvents] = useState(fallbackTopEvents);
-  const highRiskCount = topEvents.filter((event) => ['高', '中高'].includes(event.risk)).length;
-
-  useEffect(() => {
-    let alive = true;
-    api
-      .getHotEvents({ sort: 'heat', page: 1, page_size: 5 })
-      .then((result) => {
-        if (!alive) return;
-        setTopEvents(result.items?.length ? result.items : fallbackTopEvents);
-      })
-      .catch(() => {
-        if (!alive) return;
-        setTopEvents(fallbackTopEvents);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [fallbackTopEvents]);
+  const profileEntryLabel = `${user} 的个人中心`;
+  const [alertsOpen, setAlertsOpen] = useState(false);
 
   return (
     <div className="app-shell">
       <header className="topbar">
-        <Link className="brand-mark" to="/dashboard">
-          <span className="brand-symbol">
-            <Radar size={20} strokeWidth={2.4} />
-          </span>
-          <span>Trendsight</span>
-        </Link>
+        <div className="topbar-inner">
+          <Link className="brand-mark" to="/dashboard">
+            <span className="brand-symbol">
+              <Radar size={20} strokeWidth={2.4} />
+            </span>
+            <span>Trendsight</span>
+          </Link>
 
-        <nav className="topbar-nav">
-          <NavLink to="/dashboard">
-            <LayoutDashboard size={17} />
-            舆情看板
-          </NavLink>
-          <NavLink to="/qa">
-            <MessageSquareText size={17} />
-            智能问答
-          </NavLink>
-        </nav>
+          <nav className="topbar-nav">
+            <NavLink to="/dashboard">
+              <LayoutDashboard size={17} />
+              事件看板
+            </NavLink>
+            <NavLink to="/qa">
+              <MessageSquareText size={17} />
+              事件问答
+            </NavLink>
+          </nav>
 
-        <div className="topbar-actions">
-          <button className="topbar-icon-action alert-action" aria-label={`高风险预警 ${highRiskCount} 条`} type="button">
-            <Bell size={17} />
-            <span />
-          </button>
-          <button className="profile-entry" onClick={() => navigate('/profile')} type="button">
-            <CircleUserRound size={18} />
-            <span>{user}</span>
-          </button>
+          <div className="topbar-actions">
+            {topbarAction}
+            <button
+              aria-expanded={alertsOpen}
+              aria-haspopup="dialog"
+              aria-label="预警通知"
+              className="topbar-icon-action alert-action"
+              onClick={() => setAlertsOpen((value) => !value)}
+              title="预警通知"
+              type="button"
+            >
+              <Bell size={17} />
+              <span />
+            </button>
+            {alertsOpen ? (
+              <div className="alert-popover" role="dialog" aria-label="预警通知">
+                <strong>预警通知</strong>
+                <p>当前没有新的预警</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAlertsOpen(false);
+                    navigate('/dashboard');
+                  }}
+                >
+                  查看高风险事件
+                </button>
+              </div>
+            ) : null}
+            <button className="profile-entry" onClick={() => navigate('/profile')} type="button">
+              <CircleUserRound size={18} />
+              <span>{profileEntryLabel}</span>
+            </button>
+          </div>
         </div>
       </header>
       <main className={`shell-main ${wide ? 'wide-shell-main' : ''}`}>{children}</main>

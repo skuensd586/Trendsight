@@ -205,6 +205,7 @@ def get_events(
 def get_event_detail(
     db: Session,
     event_id: int,
+    include_deferred: bool = False,
 ) -> dict | None:
     """获取事件详情，包含子表数据、相似事件、处置建议和计算字段。
 
@@ -273,9 +274,12 @@ def get_event_detail(
                 authenticity_label = "低可信"
                 authenticity_description = "普通来源比例较高，建议谨慎传播"
 
-    # Similar events
-    similar_events = find_similar_events(db, event.event_id)
-    advice = generate_event_advice(event, similar_events)
+    similar_events = []
+    advice = None
+    if include_deferred:
+        similar_events = find_similar_events(db, event.event_id)
+        advice = generate_event_advice(event, similar_events)
+
     return {
         "event_id": event.event_id,
         "title": event.title,
@@ -345,3 +349,24 @@ def get_event_detail(
             for t in trend + future_trend
         ],
     }
+
+
+def get_event_similar_events(
+    db: Session,
+    event_id: int,
+) -> list[dict] | None:
+    event = db.query(Event.event_id).filter(Event.event_id == event_id).first()
+    if event is None:
+        return None
+    return find_similar_events(db, event_id)
+
+
+def get_event_advice(
+    db: Session,
+    event_id: int,
+) -> dict | None:
+    event = db.query(Event).filter(Event.event_id == event_id).first()
+    if event is None:
+        return None
+    similar_events = find_similar_events(db, event_id)
+    return generate_event_advice(event, similar_events)

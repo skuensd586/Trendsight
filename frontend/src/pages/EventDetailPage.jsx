@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, Download, FileCheck2, Flame, Network, ShieldCheck, Tags } from 'lucide-react';
+import { ArrowLeft, Download, FileCheck2, Flame, Loader2, Network, ShieldCheck } from 'lucide-react';
 import AppShell from '../components/AppShell.jsx';
 import EChart from '../components/EChart.jsx';
 import QAPanel from '../components/QAPanel.jsx';
@@ -8,21 +8,10 @@ import SentimentBar from '../components/SentimentBar.jsx';
 import WordCloud from '../components/WordCloud.jsx';
 import { api, isBackendMode } from '../api/index.js';
 import { events } from '../data/events.js';
-import { clusterPoints, propagationSankey } from '../data/mockAnalytics.js';
-import { buildTimestamp, downloadPdfFromBackend, sanitizeFilePart } from '../utils/briefExport.js';
+import { clusterPoints } from '../data/mockAnalytics.js';
+import { buildTimestamp, postPdfToBackend, sanitizeFilePart } from '../utils/briefExport.js';
 
 const chartColors = ['#469B78', '#4E74BD', '#C93F45', '#D4783A', '#7962B3'];
-const defaultGeoDiscussion = [
-  { name: '广东省', displayName: '广东', lng: 113.27, lat: 23.13, value: 124000 },
-  { name: '广西壮族自治区', displayName: '广西', lng: 108.32, lat: 22.82, value: 82000 },
-  { name: '福建省', displayName: '福建', lng: 119.3, lat: 26.08, value: 68000 },
-  { name: '湖南省', displayName: '湖南', lng: 112.98, lat: 28.19, value: 54000 },
-  { name: '江西省', displayName: '江西', lng: 115.86, lat: 28.68, value: 42000 },
-  { name: '上海市', displayName: '上海', lng: 121.47, lat: 31.23, value: 39000 },
-  { name: '北京市', displayName: '北京', lng: 116.4, lat: 39.9, value: 31000 },
-  { name: '四川省', displayName: '四川', lng: 104.07, lat: 30.67, value: 26000 },
-  { name: '陕西省', displayName: '陕西', lng: 108.94, lat: 34.34, value: 18000 },
-];
 const stageClass = {
   高潮期: 'stage-peak',
   成长期: 'stage-growth',
@@ -35,6 +24,8 @@ const riskClass = {
   中: 'risk-mid',
   低: 'risk-low',
 };
+const hiddenCategoryLabels = new Set(['未分类']);
+const hiddenLocationLabels = new Set(['未标注地区', '未对应地区']);
 const emptyTrend = [
   { time: '00:00', value: 0 },
   { time: '04:00', value: 0 },
@@ -45,17 +36,22 @@ const emptyTrend = [
 ];
 const emptyWords = [['暂无关键词', 1]];
 const emptyPlatforms = [{ name: '暂无数据', value: 0 }];
+const trendContextBeforeChange = 1;
+const trendMinVisiblePoints = 6;
+const trendMinCollapsedPoints = 2;
+const trendBaselineBandRatio = 0.06;
+const trendJumpBandRatio = 0.08;
 
 function createEmptyDetailEvent(id = '') {
   return {
     id: String(id || ''),
-    title: '事件详情加载中',
+    title: '正在加载事件详情',
     category: '未分类',
     time: '',
     location: '未标注地区',
-    cause: '暂无后端详情数据',
-    people: '暂无',
-    summary: '正在加载后端事件详情。',
+    cause: '暂无详情数据',
+    people: '暂无主体信息',
+    summary: '正在加载事件详情。',
     heat: 0,
     risk: '中',
     stage: '成长期',
@@ -71,7 +67,7 @@ function createEmptyDetailEvent(id = '') {
     pathNodes: [{ name: '暂无传播节点', category: 3, symbolSize: 34 }],
     pathLinks: [],
     qaSeed: '',
-    advice: '暂无处置建议。',
+    advice: '还没有处置建议。',
     adviceItems: [],
     authenticityLevel: '',
     authenticityLabel: '',
@@ -91,6 +87,24 @@ function formatCount(value) {
   return value.toLocaleString();
 }
 
+function normalizeDisplayText(value) {
+  return String(value || '').trim();
+}
+
+function getVisibleEventCategory(category) {
+  const text = normalizeDisplayText(category);
+  return text && !hiddenCategoryLabels.has(text) ? text : '';
+}
+
+function getVisibleEventLocation(location) {
+  const text = normalizeDisplayText(location);
+  return text && !hiddenLocationLabels.has(text) ? text : '';
+}
+
+function getEventContextTag(event) {
+  return [getVisibleEventCategory(event.category), getVisibleEventLocation(event.location)].filter(Boolean).join(' · ');
+}
+
 function normalizeSimilarEventItem(item, index) {
   if (typeof item === 'string') {
     return {
@@ -108,16 +122,101 @@ function normalizeSimilarEventItem(item, index) {
 
   return {
     key: String(item?.id || item?.event_id || item?.title || index),
-    title: item?.title || '未命名相似事件',
+    title: item?.title || '未命名事件',
     similarityLabel,
     reason: item?.reason || '',
   };
 }
 
-function buildTrendOption(event) {
-  const trend = event.trend?.length ? event.trend : emptyTrend;
+function buildBaseEvent(fallbackEvent, nextEvent = {}) {
+  return {
+    ...fallbackEvent,
+    ...nextEvent,
+    sentiment: nextEvent.sentiment || fallbackEvent.sentiment,
+    platforms: nextEvent.platforms?.length ? nextEvent.platforms : fallbackEvent.platforms,
+    trend: nextEvent.trend?.length ? nextEvent.trend : fallbackEvent.trend,
+    words: nextEvent.words?.length ? nextEvent.words : fallbackEvent.words,
+    keywords: nextEvent.keywords?.length ? nextEvent.keywords : fallbackEvent.keywords,
+    pathNodes: nextEvent.pathNodes?.length ? nextEvent.pathNodes : fallbackEvent.pathNodes,
+    pathLinks: nextEvent.pathLinks?.length ? nextEvent.pathLinks : fallbackEvent.pathLinks,
+    similarEvents: [],
+    advice: '',
+    adviceItems: [],
+  };
+}
+
+function getInitialDeferredContent(event, keepFallbackContent) {
+  return {
+    similarEvents: keepFallbackContent ? event.similarEvents || [] : [],
+    advice: keepFallbackContent ? event.advice || '' : '',
+    adviceItems: keepFallbackContent ? event.adviceItems || [] : [],
+  };
+}
+
+function getTrendValue(item) {
+  const value = Number(item?.value ?? 0);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function normalizeTrendSeries(trend) {
+  const sourceTrend = trend?.length ? trend : emptyTrend;
+  return sourceTrend.map((item, index) => ({
+    ...(item || {}),
+    time: item?.time || String(index + 1),
+    value: getTrendValue(item),
+  }));
+}
+
+function findFirstMeaningfulTrendIndex(trend) {
+  const values = trend.map((item) => item.value);
+  const max = Math.max(...values);
+  const min = Math.min(...values);
+  const range = max - min;
+
+  if (range <= 0) return 0;
+
+  const baseline = values[0];
+  const valueReference = Math.max(Math.abs(max), Math.abs(baseline), 1);
+  const baselineBand = Math.max(range * trendBaselineBandRatio, valueReference * 0.01, 1);
+  const jumpBand = Math.max(range * trendJumpBandRatio, valueReference * 0.015, 1);
+
+  for (let index = 1; index < values.length; index += 1) {
+    const baselineMove = Math.abs(values[index] - baseline);
+    const localJump = Math.abs(values[index] - values[index - 1]);
+
+    if (baselineMove >= baselineBand || localJump >= jumpBand) {
+      return index;
+    }
+  }
+
+  return 0;
+}
+
+function buildVisibleTrend(trend) {
+  const normalizedTrend = normalizeTrendSeries(trend);
+  const firstMeaningfulIndex = findFirstMeaningfulTrendIndex(normalizedTrend);
+
+  if (!firstMeaningfulIndex) return normalizedTrend;
+
+  const minVisibleCount = Math.min(trendMinVisiblePoints, normalizedTrend.length);
+  let startIndex = Math.max(0, firstMeaningfulIndex - trendContextBeforeChange);
+
+  if (normalizedTrend.length - startIndex < minVisibleCount) {
+    startIndex = Math.max(0, normalizedTrend.length - minVisibleCount);
+  }
+
+  if (startIndex < trendMinCollapsedPoints) return normalizedTrend;
+
+  return normalizedTrend.slice(startIndex);
+}
+
+function buildTrendOption(visibleTrend) {
+  const trend = normalizeTrendSeries(visibleTrend);
   const trendData = trend.map((item) => item.value);
   const peak = trend.reduce((current, item) => (item.value > current.value ? item : current), trend[0]);
+  const peakIndex = trend.findIndex((item) => item === peak);
+  const peakAreaStart = trend[Math.max(0, peakIndex - 1)]?.time || peak.time;
+  const peakAreaEnd = trend[Math.min(trend.length - 1, peakIndex + 1)]?.time || peak.time;
   const keyNodes = trend
     .filter((item) => item.node)
     .map((item) => ({
@@ -144,7 +243,7 @@ function buildTrendOption(event) {
     },
     yAxis: {
       type: 'value',
-      name: '报道量 / 条',
+      name: '报道量（条）',
       nameTextStyle: { color: '#868F9E', align: 'right' },
       splitLine: { lineStyle: { color: '#E8EEF3' } },
       axisLabel: { color: '#868F9E' },
@@ -170,7 +269,7 @@ function buildTrendOption(event) {
         data: trendData,
         markArea: {
           itemStyle: { color: 'rgba(54, 111, 184, 0.08)' },
-          data: [[{ xAxis: event.trend[3]?.time || '12:00' }, { xAxis: event.trend[5]?.time || '16:00' }]],
+          data: trend.length > 1 ? [[{ xAxis: peakAreaStart }, { xAxis: peakAreaEnd }]] : [],
         },
         markPoint: {
           symbol: 'circle',
@@ -218,105 +317,14 @@ function buildTrendOption(event) {
   };
 }
 
-function formatGeoValue(value) {
-  if (value >= 10000) return `${(value / 10000).toFixed(1)}万`;
-  return value.toLocaleString();
-}
-
-function buildGeoHeatOption(event) {
-  const geoDiscussion = event.geoDiscussion?.length ? event.geoDiscussion : defaultGeoDiscussion;
-  const values = geoDiscussion.map((item) => item.value);
-  const max = Math.max(...values);
-  const min = Math.min(...values);
-  const provinceData = geoDiscussion.map((item) => ({ name: item.name, value: item.value }));
-  const pointData = geoDiscussion.map((item) => ({
-    name: item.displayName || item.name,
-    value: [item.lng, item.lat, item.value],
-  }));
-
-  return {
-    tooltip: {
-      trigger: 'item',
-      formatter: (params) => {
-        const value = Array.isArray(params.value) ? params.value[2] : params.value;
-        return `${params.name}<br/>讨论量：${value ? formatGeoValue(value) : '暂无数据'}`;
-      },
-    },
-    visualMap: {
-      min,
-      max,
-      left: 16,
-      bottom: 14,
-      calculable: true,
-      itemWidth: 10,
-      itemHeight: 96,
-      text: ['高', '低'],
-      textStyle: { color: '#868F9E' },
-      inRange: {
-        color: ['#EAF1F4', '#CDE5DF', '#D9AE73', '#C93F45'],
-      },
-    },
-    geo: {
-      map: 'china',
-      roam: false,
-      zoom: 1.28,
-      layoutCenter: ['52%', '54%'],
-      layoutSize: '86%',
-      label: { show: false },
-      itemStyle: {
-        areaColor: '#F2F6F7',
-        borderColor: '#DDE7EC',
-        borderWidth: 1,
-      },
-      emphasis: {
-        label: { show: false },
-        itemStyle: { areaColor: '#CDE5DF' },
-      },
-    },
-    series: [
-      {
-        name: '讨论热度',
-        type: 'map',
-        map: 'china',
-        geoIndex: 0,
-        data: provinceData,
-      },
-      {
-        name: '核心讨论区',
-        type: 'effectScatter',
-        coordinateSystem: 'geo',
-        data: pointData
-          .slice()
-          .sort((first, second) => second.value[2] - first.value[2])
-          .slice(0, 6),
-        symbolSize: (value) => 10 + (value[2] / max) * 28,
-        rippleEffect: { brushType: 'stroke', scale: 3.2 },
-        itemStyle: {
-          color: '#C93F45',
-          shadowBlur: 12,
-          shadowColor: 'rgba(201, 63, 69, 0.28)',
-        },
-        label: {
-          show: true,
-          formatter: (params) => params.name,
-          position: 'right',
-          color: '#1A1F27',
-          fontSize: 12,
-          fontWeight: 760,
-        },
-      },
-    ],
-  };
-}
-
 function buildPieOption(event) {
   const sentimentData = [
-    { name: '积极', value: event.sentiment.positive },
+    { name: '正向', value: event.sentiment.positive },
     { name: '中性', value: event.sentiment.neutral },
-    { name: '消极', value: event.sentiment.negative },
+    { name: '负向', value: event.sentiment.negative },
   ];
   const dominant = sentimentData.reduce((current, item) => (item.value > current.value ? item : current), sentimentData[0]);
-  const conclusion = dominant.name === '积极' ? '情绪偏正向' : dominant.name === '消极' ? '负面需关注' : '中性占主导';
+  const conclusion = dominant.name === '正向' ? '正向为主' : dominant.name === '负向' ? '负向偏高' : '中性为主';
 
   return {
     color: chartColors,
@@ -332,7 +340,7 @@ function buildPieOption(event) {
         fontWeight: 850,
       },
       subtextStyle: {
-        color: dominant.name === '积极' ? '#469B78' : dominant.name === '消极' ? '#C93F45' : '#4E74BD',
+        color: dominant.name === '正向' ? '#469B78' : dominant.name === '负向' ? '#C93F45' : '#4E74BD',
         fontSize: 20,
         fontWeight: 900,
       },
@@ -340,7 +348,7 @@ function buildPieOption(event) {
     legend: { show: false },
     series: [
       {
-        name: '情感分布',
+        name: '情绪分布',
         type: 'pie',
         radius: ['56%', '74%'],
         center: ['50%', '46%'],
@@ -428,7 +436,7 @@ function buildKeywordGraphOption(event) {
     tooltip: {
       formatter: (params) => {
         if (params.dataType === 'edge') return `关联强度：${params.data.value}`;
-        return `${params.name}<br/>词频权重：${params.value}`;
+        return `${params.name}<br/>关键词权重：${params.value}`;
       },
     },
     legend: {
@@ -486,7 +494,7 @@ function buildKeywordTreemapOption(event) {
   }));
 
   return {
-    tooltip: { formatter: (params) => `${params.name}<br/>词频权重：${params.value || ''}` },
+    tooltip: { formatter: (params) => `${params.name}<br/>关键词权重：${params.value || ''}` },
     series: [
       {
         type: 'treemap',
@@ -519,66 +527,6 @@ function buildKeywordTreemapOption(event) {
           { itemStyle: { borderColor: '#fff', borderWidth: 3, gapWidth: 3 } },
         ],
         data: childrenByGroup.filter((group) => group.children.length),
-      },
-    ],
-  };
-}
-
-function buildKeywordRankOption(event) {
-  const words = event.words?.length ? event.words : emptyWords;
-  const ranked = words.slice(0, 8).reverse();
-  const max = Math.max(...ranked.map(([, weight]) => weight), 1);
-
-  return {
-    tooltip: {
-      trigger: 'axis',
-      axisPointer: { type: 'shadow' },
-      formatter: (params) => `${params[0].name}<br/>TF-IDF 权重：${params[0].value}`,
-    },
-    grid: { top: 12, right: 48, bottom: 20, left: 62 },
-    xAxis: {
-      type: 'value',
-      max: Math.ceil(max / 10) * 10,
-      axisLabel: { color: '#868F9E' },
-      splitLine: { lineStyle: { color: '#E8EEF3' } },
-    },
-    yAxis: {
-      type: 'category',
-      data: ranked.map(([word]) => word),
-      axisLabel: { color: '#1A1F27', fontWeight: 820 },
-      axisLine: { show: false },
-      axisTick: { show: false },
-    },
-    series: [
-      {
-        type: 'bar',
-        data: ranked.map(([word, weight]) => ({
-          value: weight,
-          itemStyle: {
-            color: {
-              type: 'linear',
-              x: 0,
-              y: 0,
-              x2: 1,
-              y2: 0,
-              colorStops: [
-                { offset: 0, color: '#CDE5DF' },
-                { offset: 1, color: '#2A3F54' },
-              ],
-            },
-          },
-        })),
-        barWidth: 16,
-        label: {
-          show: true,
-          position: 'right',
-          formatter: '{c}',
-          color: '#444A56',
-          fontWeight: 850,
-        },
-        itemStyle: {
-          borderRadius: [0, 8, 8, 0],
-        },
       },
     ],
   };
@@ -623,47 +571,6 @@ function buildPlatformBarOption(event) {
             ],
           },
         },
-      },
-    ],
-  };
-}
-
-function buildThemeRiverOption(event) {
-  const themes = [
-    { name: '暴雨', weight: [0.44, 0.5, 0.42, 0.25, 0.18, 0.16, 0.12] },
-    { name: '救援', weight: [0.18, 0.24, 0.34, 0.42, 0.46, 0.38, 0.3] },
-    { name: '积水', weight: [0.28, 0.32, 0.3, 0.24, 0.2, 0.16, 0.12] },
-    { name: '路况', weight: [0.08, 0.12, 0.2, 0.24, 0.26, 0.28, 0.3] },
-    { name: '通报', weight: [0.02, 0.05, 0.08, 0.18, 0.24, 0.28, 0.32] },
-  ];
-  const trend = event.trend?.length ? event.trend : emptyTrend;
-  const data = trend.flatMap((point, index) =>
-    themes.map((theme) => {
-      const weight = theme.weight[index] ?? theme.weight[theme.weight.length - 1] ?? 0.1;
-      const time = /^\d{4}-\d{2}-\d{2}/.test(point.time) ? point.time.replace(/-/g, '/') : `2026/07/07 ${point.time || '00:00'}`;
-      return [time, Math.max(12, Math.round(point.value * weight)), theme.name];
-    }),
-  );
-
-  return {
-    color: ['#2A3F54', '#366FB8', '#3A9477', '#4D8A91', '#72A7B5'],
-    tooltip: { trigger: 'axis' },
-    legend: { top: 0, textStyle: { color: '#444A56' } },
-    singleAxis: {
-      top: 54,
-      bottom: 28,
-      type: 'time',
-      axisLabel: {
-        color: '#868F9E',
-        formatter: (value) => new Date(value).getHours().toString().padStart(2, '0') + ':00',
-      },
-      axisLine: { lineStyle: { color: '#E2E7EF' } },
-    },
-    series: [
-      {
-        type: 'themeRiver',
-        emphasis: { itemStyle: { shadowBlur: 12, shadowColor: 'rgba(42,63,84,0.18)' } },
-        data,
       },
     ],
   };
@@ -784,7 +691,7 @@ function buildLifecycleOption(event) {
         },
       },
       {
-        name: 'AI预测',
+        name: '预测值',
         type: 'line',
         smooth: 0.25,
         data: forecastData,
@@ -809,16 +716,16 @@ function buildClusterOption() {
 
   return {
     tooltip: {
-      formatter: (params) => `${params.data.title}<br/>聚类：${params.data.cluster}<br/>热度：${params.data.heat}`,
+      formatter: (params) => `${params.data.title}<br/>类别：${params.data.cluster}<br/>热度：${params.data.heat}`,
     },
     grid: { top: 28, right: 26, bottom: 36, left: 42 },
     xAxis: {
-      name: '语义相似维度 X',
+      name: '相似度维度 X',
       axisLabel: { color: '#868F9E' },
       splitLine: { lineStyle: { color: '#E8EEF3' } },
     },
     yAxis: {
-      name: '语义相似维度 Y',
+      name: '相似度维度 Y',
       axisLabel: { color: '#868F9E' },
       splitLine: { lineStyle: { color: '#E8EEF3' } },
     },
@@ -847,178 +754,204 @@ const propagationRoleMeta = [
   { name: '初始爆料', color: '#C93F45' },
   { name: '大V', color: '#D4783A' },
   { name: '官媒', color: '#366FB8' },
+  { name: '传播高峰', color: '#7962B3' },
   { name: '普通网民', color: '#868F9E' },
 ];
 
+const propagationRoleDescriptions = {
+  初始爆料: '现场信息源',
+  大V: '高影响账号转发',
+  官媒: '权威媒体介入',
+  传播高峰: '讨论量峰值',
+  普通网民: '普通用户扩散',
+};
+
 function getPropagationRole(node, index) {
   const name = node.name || '';
-  if (index === 0 || node.category === 0 || /爆料|求助|反馈|投诉|长文|帖子|截图|患者|车主|乘客|游客|居民/.test(name)) return '初始爆料';
-  if (/官方|部门|公告|通报|说明|客服|校方|医院|运营方|平台|考试院|供水|物业|文旅|交通|媒体|新闻|专家/.test(name) || node.category === 2 || node.category === 3) return '官媒';
-  if (node.category === 1 || /博主|大V|热搜|社区|短视频|论坛|账号|群|校园号/.test(name)) return '大V';
+  const role = String(node.role || '').trim();
+  if (/初始|首发|爆料/.test(role) || node.category === 0 || (!role && index === 0 && /爆料|求助|反馈|投诉|长文|帖子|截图|患者|车主|乘客|游客|居民/.test(name))) return '初始爆料';
+  if (/高峰|峰值/.test(role) || node.category === 3) return '传播高峰';
+  if (/大V|意见领袖/.test(role) || node.category === 1 || /博主|大V|热搜|社区|短视频|论坛|账号|群|校园号/.test(name)) return '大V';
+  if (/官方|媒体|通报/.test(role) || /官方|部门|公告|通报|说明|客服|校方|医院|运营方|平台|考试院|供水|物业|文旅|交通|媒体|新闻|专家/.test(name) || node.category === 2) return '官媒';
   return '普通网民';
 }
 
-function buildTraceForceOption(event) {
-  const timelineData = event.trend.map((item) => item.time);
-  const arrivalStep = Math.max(1, Math.floor(timelineData.length / Math.max(1, event.pathNodes.length - 1)));
-  const nodeArrivalMap = new Map();
+function formatPropagationTime(value) {
+  const text = String(value || '').trim();
+  if (!text) return '时间未知';
+  return text.replace('T', ' ').slice(0, 16);
+}
+
+function formatPropagationAxisTime(value, index) {
+  const time = formatPropagationTime(value);
+  if (time === '时间未知') return `节点${index + 1}`;
+  return `${time.slice(5, 10)}\n${time.slice(11, 16)}`;
+}
+
+function formatPropagationInfluence(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return '暂无';
+  return number >= 100 ? number.toFixed(1) : number.toFixed(1).replace(/\.0$/, '');
+}
+
+function buildTraceSequenceOption(event) {
   const nodes = event.pathNodes.map((node, index) => {
     const role = getPropagationRole(node, index);
     const roleIndex = propagationRoleMeta.findIndex((item) => item.name === role);
     const multiplier = { 初始爆料: 0.95, 大V: 1.35, 官媒: 1.62, 普通网民: 0.62 }[role] || 1;
-    const influence = Math.round(((node.symbolSize || 38) * 7200 + event.heat * 850) * multiplier);
-    const arrivalIndex = Math.min(timelineData.length - 1, index * arrivalStep + (index > 2 ? 1 : 0));
-    nodeArrivalMap.set(node.name, arrivalIndex);
+    const rawInfluence = Number(node.influence);
+    const influence = Number.isFinite(rawInfluence) && rawInfluence > 0
+      ? rawInfluence
+      : Math.round(((node.symbolSize || 38) * 120 + event.heat * 16) * multiplier);
+    const publishTime = node.publish_time || node.publishTime || '';
+    const axisTime = formatPropagationAxisTime(publishTime, index);
 
     return {
       id: node.name,
       name: node.name,
       role,
+      index,
+      axisTime,
       category: Math.max(0, roleIndex),
-      value: influence,
-      arrivalIndex,
-      symbolSize: Math.min(76, Math.max(30, 18 + influence / 14000)),
+      value: [axisTime, role],
+      influence,
+      platform: node.platform || '',
+      publishTime,
+      influenceLabel: formatPropagationInfluence(rawInfluence),
+      labelDetail: propagationRoleDescriptions[role] || '传播节点',
+      symbolSize: Math.min(76, Math.max(30, Number(node.symbolSize || node.symbol_size || 42))),
       itemStyle: { color: propagationRoleMeta[Math.max(0, roleIndex)]?.color || '#868F9E' },
-      label: { fontSize: influence > 520000 ? 14 : 12 },
+      label: { fontSize: Number(node.symbolSize || node.symbol_size || 42) > 58 ? 14 : 12 },
     };
   });
-  const links = event.pathLinks.map(([source, target], index) => {
-    const sourceArrival = nodeArrivalMap.get(source) || 0;
-    const targetArrival = nodeArrivalMap.get(target) || sourceArrival + 1;
-    const traffic = Math.max(1200, Math.round((event.reportCount / (index + 2)) * (0.36 + event.heat / 220)));
-
+  const axisTimes = nodes.map((node) => node.axisTime);
+  const arrowLinks = nodes.slice(1).map((node, index) => {
+    const source = nodes[index];
     return {
-      source,
-      target,
-      value: traffic,
-      arrivalIndex: Math.min(timelineData.length - 1, Math.max(sourceArrival, targetArrival)),
+      coords: [
+        [source.axisTime, source.role],
+        [node.axisTime, node.role],
+      ],
       lineStyle: {
-        width: Math.min(8, Math.max(1.6, Math.sqrt(traffic) / 26)),
-        opacity: 0.42,
+        curveness: index % 2 === 0 ? 0.34 : -0.26,
       },
     };
   });
 
   return {
-    baseOption: {
-      color: propagationRoleMeta.map((item) => item.color),
-      tooltip: {
-        trigger: 'item',
-        formatter: (params) => {
-          if (params.dataType === 'edge') {
-            return `${params.data.source} → ${params.data.target}<br/>传播流量：${formatCount(params.data.value)}`;
-          }
-          return `${params.name}<br/>角色：${params.data.role}<br/>影响力：${formatCount(params.data.value)}`;
-        },
+    color: propagationRoleMeta.map((item) => item.color),
+    tooltip: {
+      trigger: 'item',
+      formatter: (params) => {
+        if (params.seriesName !== '关键节点') return '';
+        const platform = params.data.platform ? `<br/>平台：${params.data.platform}` : '';
+        return `${params.data.index + 1}. ${params.name}<br/>角色：${params.data.role}${platform}<br/>时间：${formatPropagationTime(params.data.publishTime)}<br/>影响力：${params.data.influenceLabel}`;
       },
-      legend: {
-        top: 0,
-        left: 8,
-        icon: 'circle',
-        textStyle: { color: '#444A56' },
-      },
-      timeline: {
-        axisType: 'category',
-        autoPlay: false,
-        currentIndex: timelineData.length - 1,
-        bottom: 0,
-        left: 18,
-        right: 18,
-        height: 66,
-        data: timelineData,
-        symbol: 'circle',
-        symbolSize: 8,
-        checkpointStyle: {
-          color: '#2A3F54',
-          borderColor: '#fff',
-          borderWidth: 2,
-        },
-        lineStyle: { color: '#DDE7EC' },
-        label: { color: '#868F9E' },
-        controlStyle: {
-          color: '#2A3F54',
-          borderColor: '#2A3F54',
-        },
-      },
-      series: [
-        {
-          type: 'graph',
-          layout: 'force',
-          top: 56,
-          right: 18,
-          bottom: 92,
-          left: 18,
-          roam: true,
-          draggable: true,
-          categories: propagationRoleMeta.map((item) => ({ name: item.name, itemStyle: { color: item.color } })),
-          edgeSymbol: ['none', 'arrow'],
-          edgeSymbolSize: [0, 8],
-          force: {
-            repulsion: 360,
-            edgeLength: [82, 148],
-            gravity: 0.07,
-            friction: 0.42,
-          },
-          label: {
-            show: true,
-            color: '#1A1F27',
-            fontWeight: 850,
-          },
-          lineStyle: {
-            color: 'source',
-            curveness: 0.16,
-          },
-          emphasis: {
-            focus: 'adjacency',
-            lineStyle: { opacity: 0.88 },
-          },
-          animationDurationUpdate: 550,
-          animationEasingUpdate: 'quinticInOut',
-          data: [],
-          links: [],
-        },
-      ],
     },
-    options: timelineData.map((_time, frameIndex) => ({
-      series: [
-        {
-          data: nodes.filter((node) => node.arrivalIndex <= frameIndex),
-          links: links.filter((link) => link.arrivalIndex <= frameIndex),
-        },
-      ],
-    })),
-  };
-}
-
-function buildSankeyOption() {
-  return {
-    tooltip: { trigger: 'item', triggerOn: 'mousemove' },
+    grid: { top: 28, right: 36, bottom: 64, left: 86 },
+    xAxis: {
+      type: 'category',
+      boundaryGap: true,
+      data: axisTimes,
+      axisLine: { lineStyle: { color: '#DDE7EC' } },
+      axisTick: { alignWithLabel: true, lineStyle: { color: '#DDE7EC' } },
+      axisLabel: {
+        color: '#667085',
+        fontWeight: 720,
+        lineHeight: 16,
+        hideOverlap: true,
+      },
+    },
+    yAxis: {
+      type: 'category',
+      data: propagationRoleMeta.map((item) => item.name),
+      axisLine: { lineStyle: { color: '#DDE7EC' } },
+      axisTick: { show: false },
+      axisLabel: {
+        color: '#667085',
+        fontWeight: 720,
+      },
+      splitLine: { lineStyle: { color: '#EEF2F6' } },
+    },
     series: [
       {
-        type: 'sankey',
-        top: 14,
-        right: 24,
-        bottom: 18,
-        left: 24,
-        nodeWidth: 14,
-        nodeGap: 14,
-        draggable: false,
-        emphasis: { focus: 'adjacency' },
+        name: '传播弧线',
+        type: 'line',
+        data: nodes.map((node) => ({ value: [node.axisTime, node.role] })),
+        smooth: 0.5,
+        symbol: 'none',
         lineStyle: {
-          color: 'gradient',
-          curveness: 0.5,
-          opacity: 0.42,
+          color: '#7962B3',
+          width: 2.2,
+          opacity: 0.34,
+          cap: 'round',
         },
+        z: 1,
+        silent: true,
+      },
+      {
+        name: '传播方向',
+        type: 'lines',
+        coordinateSystem: 'cartesian2d',
+        data: arrowLinks,
+        symbol: ['none', 'arrow'],
+        symbolSize: [0, 14],
+        lineStyle: {
+          color: '#7962B3',
+          width: 2.6,
+          opacity: 0.72,
+          curveness: 0.32,
+          cap: 'round',
+        },
+        z: 2,
+        silent: true,
+      },
+      {
+        name: '关键节点',
+        type: 'scatter',
+        data: nodes,
+        symbolSize: (value, params) => params.data.symbolSize,
         itemStyle: {
-          borderColor: 'rgba(255,255,255,0.9)',
-          borderWidth: 1,
+          color: (params) => params.data.itemStyle.color,
+          borderColor: '#fff',
+          borderWidth: 2,
+          shadowBlur: 10,
+          shadowColor: 'rgba(42, 63, 84, 0.16)',
         },
         label: {
+          show: true,
+          formatter: (params) => `{title|${params.data.index + 1}. ${params.data.role}}\n{desc|${params.data.labelDetail}}`,
+          position: 'top',
+          distance: 12,
           color: '#1A1F27',
-          fontWeight: 760,
+          fontWeight: 850,
+          fontSize: 12,
+          lineHeight: 18,
+          backgroundColor: 'rgba(255, 255, 255, 0.92)',
+          borderColor: 'rgba(226, 231, 239, 0.9)',
+          borderWidth: 1,
+          borderRadius: 6,
+          padding: [5, 8],
+          rich: {
+            title: {
+              color: '#1A1F27',
+              fontSize: 12,
+              fontWeight: 850,
+              lineHeight: 18,
+            },
+            desc: {
+              color: '#667085',
+              fontSize: 11,
+              fontWeight: 720,
+              lineHeight: 16,
+            },
+          },
         },
-        data: propagationSankey.nodes,
-        links: propagationSankey.links,
+        emphasis: {
+          scale: true,
+          label: { color: '#2A3F54' },
+        },
+        z: 3,
       },
     ],
   };
@@ -1178,65 +1111,176 @@ function buildFakeChecks(event) {
 
 export default function EventDetailPage() {
   const { id } = useParams();
+  const chartInstancesRef = useRef(new Map());
   const fallbackEvent = useMemo(() => resolveFallbackEvent(id), [id]);
-  const [event, setEvent] = useState(fallbackEvent);
+  const backendMode = isBackendMode();
+  const initialDeferredContent = useMemo(() => getInitialDeferredContent(fallbackEvent, !backendMode), [backendMode, fallbackEvent]);
+  const [baseEvent, setBaseEvent] = useState(() => buildBaseEvent(fallbackEvent));
+  const [similarEvents, setSimilarEvents] = useState(initialDeferredContent.similarEvents);
+  const [adviceContent, setAdviceContent] = useState({
+    advice: initialDeferredContent.advice,
+    adviceItems: initialDeferredContent.adviceItems,
+  });
+  const [similarStatus, setSimilarStatus] = useState('idle');
+  const [adviceStatus, setAdviceStatus] = useState('idle');
+  const [similarError, setSimilarError] = useState('');
+  const [adviceError, setAdviceError] = useState('');
   const [detailError, setDetailError] = useState('');
+  const [isExportingBrief, setIsExportingBrief] = useState(false);
 
   useEffect(() => {
     let alive = true;
+    const initialDeferred = getInitialDeferredContent(fallbackEvent, !backendMode);
+
     setDetailError('');
-    setEvent(fallbackEvent);
+    setBaseEvent(buildBaseEvent(fallbackEvent));
+    setSimilarEvents(initialDeferred.similarEvents);
+    setAdviceContent({
+      advice: initialDeferred.advice,
+      adviceItems: initialDeferred.adviceItems,
+    });
+    setSimilarError('');
+    setAdviceError('');
+    setSimilarStatus(api.getEventSimilarEvents ? 'loading' : 'success');
+    setAdviceStatus(api.getEventAdvice ? 'loading' : 'success');
+
     api
       .getEventDetail(id)
       .then((nextEvent) => {
         if (!alive) return;
-        setEvent({
-          ...fallbackEvent,
-          ...nextEvent,
-          sentiment: nextEvent.sentiment || fallbackEvent.sentiment,
-          platforms: nextEvent.platforms?.length ? nextEvent.platforms : fallbackEvent.platforms,
-          trend: nextEvent.trend?.length ? nextEvent.trend : fallbackEvent.trend,
-          words: nextEvent.words?.length ? nextEvent.words : fallbackEvent.words,
-          keywords: nextEvent.keywords?.length ? nextEvent.keywords : fallbackEvent.keywords,
-          similarEvents: nextEvent.similarEvents?.length ? nextEvent.similarEvents : fallbackEvent.similarEvents,
-          pathNodes: nextEvent.pathNodes?.length ? nextEvent.pathNodes : fallbackEvent.pathNodes,
-          pathLinks: nextEvent.pathLinks?.length ? nextEvent.pathLinks : fallbackEvent.pathLinks,
-        });
+        setBaseEvent(buildBaseEvent(fallbackEvent, nextEvent));
       })
       .catch((error) => {
         if (!alive) return;
         setDetailError(error.message || '事件详情加载失败');
-        setEvent(fallbackEvent);
+        setBaseEvent(buildBaseEvent(fallbackEvent));
       });
+
+    if (api.getEventSimilarEvents) {
+      api
+        .getEventSimilarEvents(id)
+        .then((items) => {
+          if (!alive) return;
+          setSimilarEvents(items || []);
+          setSimilarStatus('success');
+        })
+        .catch((error) => {
+          if (!alive) return;
+        setSimilarError(error.message || '相似事件加载失败');
+          setSimilarStatus('error');
+        });
+    }
+
+    if (api.getEventAdvice) {
+      api
+        .getEventAdvice(id)
+        .then((advice) => {
+          if (!alive) return;
+          setAdviceContent({
+            advice: advice?.advice || '',
+            adviceItems: advice?.adviceItems || [],
+          });
+          setAdviceStatus('success');
+        })
+        .catch((error) => {
+          if (!alive) return;
+          setAdviceError(error.message || '处置建议加载失败');
+          setAdviceStatus('error');
+        });
+    }
+
     return () => {
       alive = false;
     };
-  }, [fallbackEvent, id]);
-  const trendOption = useMemo(() => buildTrendOption(event), [event]);
+  }, [backendMode, fallbackEvent, id]);
+  const event = useMemo(
+    () => ({
+      ...baseEvent,
+      similarEvents,
+      advice: adviceContent.advice,
+      adviceItems: adviceContent.adviceItems,
+    }),
+    [adviceContent.advice, adviceContent.adviceItems, baseEvent, similarEvents],
+  );
+  const visibleTrend = useMemo(() => buildVisibleTrend(event.trend), [event.trend]);
+  const trendOption = useMemo(() => buildTrendOption(visibleTrend), [visibleTrend]);
   const sentimentOption = useMemo(() => buildPieOption(event), [event]);
-  const keywordRankOption = useMemo(() => buildKeywordRankOption(event), [event]);
   const platformBarOption = useMemo(() => buildPlatformBarOption(event), [event]);
-  const themeRiverOption = useMemo(() => buildThemeRiverOption(event), [event]);
   const lifecycleOption = useMemo(() => buildLifecycleOption(event), [event]);
-  const sankeyOption = useMemo(() => buildSankeyOption(), []);
-  const geoHeatOption = useMemo(() => buildGeoHeatOption(event), [event]);
-  const traceForceOption = useMemo(() => buildTraceForceOption(event), [event]);
+  const traceSequenceOption = useMemo(() => buildTraceSequenceOption(event), [event]);
   const authenticityTopics = useMemo(() => buildFakeChecks(event), [event]);
   const discussionCount = Math.round(event.reportCount * (event.sentiment.negative + event.heat) * 0.18);
+  const eventContextTag = useMemo(() => getEventContextTag(event), [event.category, event.location]);
+  const eventLocationText = useMemo(() => getVisibleEventLocation(event.location) || '暂无地点信息', [event.location]);
+  const setChartInstance = useCallback((chartId, title, instance) => {
+    if (!instance) {
+      chartInstancesRef.current.delete(chartId);
+      return;
+    }
+    chartInstancesRef.current.set(chartId, { id: chartId, title, instance });
+  }, []);
+  const chartReadyHandlers = useMemo(
+    () => ({
+      trend: (instance) => setChartInstance('trend', '报道发展趋势', instance),
+      platform: (instance) => setChartInstance('platform', '平台数据分布', instance),
+      sentiment: (instance) => setChartInstance('sentiment', '情绪分布', instance),
+      lifecycle: (instance) => setChartInstance('lifecycle', '阶段判断与趋势预测', instance),
+      trace: (instance) => setChartInstance('trace', '关键传播节点', instance),
+    }),
+    [setChartInstance],
+  );
+
+  const captureChartImages = useCallback(async () => {
+    window.dispatchEvent(new Event('resize'));
+    await new Promise((resolve) => {
+      window.requestAnimationFrame(() => window.requestAnimationFrame(resolve));
+    });
+
+    return Array.from(chartInstancesRef.current.values())
+      .map(({ id: chartId, title, instance }) => {
+        try {
+          instance.resize();
+          if (!instance.getWidth() || !instance.getHeight()) return null;
+          return {
+            id: chartId,
+            title,
+            data_url: instance.getDataURL({
+              type: 'png',
+              pixelRatio: 2,
+              backgroundColor: '#ffffff',
+            }),
+          };
+        } catch (error) {
+          console.warn(`图表 ${title} 导出失败`, error);
+          return null;
+        }
+      })
+      .filter(Boolean);
+  }, []);
 
   const exportReport = async () => {
+    if (isExportingBrief) return;
+
     const timestamp = buildTimestamp();
     const titlePart = sanitizeFilePart(event.title, '未命名事件').slice(0, 18);
+    setIsExportingBrief(true);
     try {
-      await downloadPdfFromBackend(`/api/events/${event.id}/brief.pdf`, `Trendsight-事件简报-${titlePart}-${timestamp}.pdf`);
+      const charts = await captureChartImages();
+      await postPdfToBackend(
+        `/api/events/${event.id}/brief-with-charts.pdf`,
+        { charts },
+        `Trendsight-事件简报-${titlePart}-${timestamp}.pdf`,
+      );
     } catch (error) {
       console.error(error);
-      window.alert(`事件简报导出失败：${error.message || '请确认后端服务已启动'}`);
+      window.alert(`导出事件简报失败：${error.message || '请确认数据服务可用'}`);
+    } finally {
+      setIsExportingBrief(false);
     }
   };
 
   return (
-    <AppShell>
+    <AppShell wide>
       <section className="detail-workspace">
         <div className="detail-report-main">
           <article className="report-hero-card">
@@ -1247,26 +1291,26 @@ export default function EventDetailPage() {
             {detailError && <p className="detail-load-error">{detailError}</p>}
             <div className="event-status-row">
               <span className={stageClass[event.stage] || 'stage-growth'}>{event.stage}</span>
-              <span className={riskClass[event.risk] || 'risk-mid'}>风险 · {event.risk}</span>
-              <span>
-                {event.category} · {event.location}
-              </span>
+              <span className={riskClass[event.risk] || 'risk-mid'}>风险 {event.risk}</span>
+              {eventContextTag ? <span>{eventContextTag}</span> : null}
             </div>
             <div className="report-hero-main">
               <div>
                 <h1>{event.title}</h1>
                 <p>{event.summary}</p>
               </div>
-              <button type="button" onClick={exportReport}>
-                <Download size={18} />
-                导出事件简报
-              </button>
+              <div className="report-export-actions">
+                <button type="button" onClick={exportReport} disabled={isExportingBrief} aria-busy={isExportingBrief}>
+                  {isExportingBrief ? <Loader2 className="button-spinner" size={18} /> : <Download size={18} />}
+                  {isExportingBrief ? '生成中...' : '导出简报'}
+                </button>
+              </div>
             </div>
             <div className="detail-kpi-strip">
               <KpiItem label="热度指数" value={event.heat} icon={Flame} tone="orange" />
               <KpiItem label="累计报道" value={formatCount(event.reportCount)} icon={FileCheck2} tone="blue" />
               <KpiItem label="参与讨论" value={formatCount(discussionCount)} icon={Network} tone="violet" />
-              <KpiItem label="真实性置信" value={`${Math.round(event.falseConfidence * 100)}%`} icon={ShieldCheck} tone="green" />
+              <KpiItem label="可信度" value={`${Math.round(event.falseConfidence * 100)}%`} icon={ShieldCheck} tone="green" />
             </div>
           </article>
 
@@ -1274,23 +1318,19 @@ export default function EventDetailPage() {
             <a href="#overview">概述</a>
             <a href="#trend">趋势</a>
             <a href="#platform">平台</a>
-            <a href="#sentiment">情感</a>
+            <a href="#sentiment">情绪</a>
             <a href="#wordcloud">词云</a>
-            <a href="#keyword-rank">排行</a>
-            <a href="#theme">河流图</a>
-            <a href="#lifecycle">生命周期</a>
-            <a href="#geo">地域</a>
-            <a href="#sankey">桑基图</a>
-            <a href="#trace">溯源</a>
-            <a href="#authenticity">真实性</a>
+            <a href="#lifecycle">阶段预测</a>
+            <a href="#trace">传播节点</a>
+            <a href="#authenticity">可信度</a>
             <a href="#retrieval">相似事件</a>
-            <a href="#advice">建议</a>
+            <a href="#advice">处置建议</a>
           </nav>
 
           <ReportSection id="overview" label="Overview" title="事件概述">
             <div className="fact-grid">
               <FactItem label="发生时间" value={event.time} />
-              <FactItem label="发生地点" value={event.location} />
+              <FactItem label="发生地点" value={eventLocationText} />
               <FactItem label="直接起因" value={event.cause} />
               <FactItem label="涉事主体" value={event.people} />
             </div>
@@ -1298,36 +1338,28 @@ export default function EventDetailPage() {
           </ReportSection>
 
           <ReportSection id="trend" label="Trend" title="报道发展趋势">
-            <EChart option={trendOption} className="report-trend-chart" />
-            <TrendEventAxis trend={event.trend} />
+            <EChart option={trendOption} className="report-trend-chart" onReady={chartReadyHandlers.trend} />
+            <TrendEventAxis trend={visibleTrend} />
           </ReportSection>
 
           <ReportSection id="platform" label="Platform" title="平台数据分布">
-            <EChart option={platformBarOption} className="platform-bar-chart" />
+            <EChart option={platformBarOption} className="platform-bar-chart" onReady={chartReadyHandlers.platform} />
           </ReportSection>
 
           <section className="analysis-split">
-            <ReportSection id="sentiment" label="Sentiment" title="情感分布">
+            <ReportSection id="sentiment" label="情绪" title="情绪分布">
               <div className="sentiment-detail-grid">
-                <EChart option={sentimentOption} className="sentiment-donut-chart" />
+                <EChart option={sentimentOption} className="sentiment-donut-chart" onReady={chartReadyHandlers.sentiment} />
                 <SentimentBar sentiment={event.sentiment} />
               </div>
             </ReportSection>
 
-            <ReportSection id="wordcloud" label="Word Cloud" title="关键词词云">
+            <ReportSection id="wordcloud" label="关键词" title="高频关键词">
               <WordCloud words={event.words} getColor={getKeywordColor} />
             </ReportSection>
           </section>
 
-          <ReportSection id="keyword-rank" label="Keyword Rank" title="关键词排行">
-            <EChart option={keywordRankOption} className="keyword-rank-chart" />
-          </ReportSection>
-
-          <ReportSection id="theme" label="Theme River" title="主题演化河流图">
-            <EChart option={themeRiverOption} className="theme-river-chart" />
-          </ReportSection>
-
-          <ReportSection id="lifecycle" label="Lifecycle" title="生命周期分析与预测">
+          <ReportSection id="lifecycle" label="阶段" title="阶段判断与趋势预测">
             <div className="lifecycle-stage-row">
               {['潜伏期', '成长期', '高潮期', '衰退期'].map((stage) => (
                 <span className={stage === event.stage ? 'active' : ''} key={stage}>
@@ -1335,22 +1367,15 @@ export default function EventDetailPage() {
                 </span>
               ))}
             </div>
-            <EChart option={lifecycleOption} className="lifecycle-chart" />
+            <EChart option={lifecycleOption} className="lifecycle-chart" onReady={chartReadyHandlers.lifecycle} />
           </ReportSection>
 
-          <ReportSection id="geo" label="Geo Heat" title="地理热力图">
-            <EChart option={geoHeatOption} className="geo-heat-chart" />
+          <ReportSection id="trace" label="传播" title="关键传播节点">
+            <EChart option={traceSequenceOption} className="trace-sequence-chart" onReady={chartReadyHandlers.trace} />
+            <PropagationNodeDetails event={event} />
           </ReportSection>
 
-          <ReportSection id="sankey" label="Propagation" title="传播路径桑基图分析">
-            <EChart option={sankeyOption} className="propagation-sankey-chart" />
-          </ReportSection>
-
-          <ReportSection id="trace" label="Traceability" title="事件溯源">
-            <EChart option={traceForceOption} className="trace-force-chart" />
-          </ReportSection>
-
-          <ReportSection id="authenticity" label="Authenticity" title="虚假文本检测">
+          <ReportSection id="authenticity" label="核验" title="可信度核验">
             {(event.authenticityLabel || event.authenticityDescription) && (
               <div className={`auth-summary ${event.authenticityLevel || 'pending'}`}>
                 <div>
@@ -1365,7 +1390,7 @@ export default function EventDetailPage() {
                 <article className={`auth-topic-card ${item.tone}`} key={item.topic}>
                   <div className="auth-topic-head">
                     <span>{item.topic}</span>
-                    <b>{item.officialRatio === null ? `${item.label || '官方来源'}待接入` : `${item.label || '官方来源'} ${item.officialRatio}%`}</b>
+                      <b>{item.officialRatio === null ? `${item.label || '官方来源'}暂无数据` : `${item.label || '官方来源'} ${item.officialRatio}%`}</b>
                   </div>
                   <div className="official-source-meter" aria-label={`${item.topic} ${item.label || '官方来源'}占比`}>
                     <span style={{ width: `${item.officialRatio ?? 0}%` }} />
@@ -1377,49 +1402,13 @@ export default function EventDetailPage() {
           </ReportSection>
 
           <section className="analysis-split bottom">
-            <ReportSection id="retrieval" label="Retrieval" title="历史相似事件">
-              <div className="similar-list">
-                {event.similarEvents.length ? (
-                  event.similarEvents.map((item, index) => {
-                    const similarEvent = normalizeSimilarEventItem(item, index);
-                    return (
-                      <article className="similar-event-item" key={similarEvent.key}>
-                        <div>
-                          <b>{similarEvent.title}</b>
-                          {similarEvent.similarityLabel && <span>{similarEvent.similarityLabel}</span>}
-                        </div>
-                        {similarEvent.reason && <p>{similarEvent.reason}</p>}
-                      </article>
-                    );
-                  })
-                ) : (
-                  <p className="similar-empty">暂无相似历史事件。</p>
-                )}
-              </div>
+            <ReportSection id="retrieval" label="历史对比" title="相似历史事件">
+              <SimilarEventsContent status={similarStatus} error={similarError} items={event.similarEvents} />
             </ReportSection>
 
-            <ReportSection id="advice" label="Advice" title="处置建议">
-              {event.adviceItems?.length ? (
-                <div className="advice-grid">
-                  {event.adviceItems.map((item) => (
-                    <article className="advice-item" key={item.label}>
-                      <span>{item.label}</span>
-                      <p>{item.text}</p>
-                    </article>
-                  ))}
-                </div>
-              ) : (
-                <p className="report-paragraph">{event.advice}</p>
-              )}
-              <div className="keyword-list compact">
-                {event.keywords.map((keyword) => (
-                  <span key={keyword}>
-                    <Tags size={14} />
-                    {keyword}
-                  </span>
-                ))}
-              </div>
-            </ReportSection>
+            <ReportSection id="advice" label="建议" title="处置建议">
+            <AdviceContent status={adviceStatus} error={adviceError} advice={event.advice} adviceItems={event.adviceItems} />
+          </ReportSection>
           </section>
         </div>
 
@@ -1431,11 +1420,10 @@ export default function EventDetailPage() {
   );
 }
 
-function ReportSection({ id, label, title, children }) {
+function ReportSection({ id, title, children }) {
   return (
     <article className="report-section-card" id={id}>
       <div className="report-section-title">
-        <span>{label}</span>
         <h2>{title}</h2>
       </div>
       {children}
@@ -1462,11 +1450,136 @@ function KpiItem({ label, value, icon: Icon, tone }) {
   );
 }
 
+function PropagationNodeDetails({ event }) {
+  const keyNodes = event.propagation?.keyNodes?.length ? event.propagation.keyNodes : event.pathNodes || [];
+  const topInfluencers = event.propagation?.topInfluencers || [];
+
+  if (!keyNodes.length) {
+    return <p className="deferred-load-state">暂无关键传播节点数据。</p>;
+  }
+
+  return (
+    <div className="propagation-detail-grid">
+      <div className="propagation-node-list">
+        <h3>节点明细</h3>
+        {keyNodes.map((node, index) => (
+          <article className="propagation-node-item" key={`${node.role || node.name}-${node.author || index}-${node.publish_time || node.publishTime || index}`}>
+            <span>{index + 1}</span>
+            <div>
+              <strong>{node.role || getPropagationRole(node, index)}</strong>
+              <p>{node.title || node.name}</p>
+              <small>
+                {[node.author, node.platform, formatPropagationTime(node.publish_time || node.publishTime)].filter(Boolean).join(' · ')}
+              </small>
+            </div>
+            <b>{formatPropagationInfluence(node.influence)}</b>
+          </article>
+        ))}
+      </div>
+
+      <div className="propagation-influencer-list">
+        <h3>高影响账号</h3>
+        {topInfluencers.length ? (
+          topInfluencers.slice(0, 3).map((item, index) => (
+            <article className="propagation-influencer-item" key={`${item.author || index}-${item.publishTime || item.publish_time || index}`}>
+              <div>
+                <strong>{item.author || '匿名账号'}</strong>
+                <span>{item.platform || '未知平台'}</span>
+              </div>
+              <p>{item.title || '暂无内容摘要'}</p>
+              <b>影响力 {formatPropagationInfluence(item.influence)}</b>
+            </article>
+          ))
+        ) : (
+          <p className="deferred-load-state">暂无高影响账号数据。</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SimilarEventsContent({ status, error, items }) {
+  if (status === 'loading') {
+    return (
+      <div className="similar-list" aria-busy="true" aria-label="历史相似事件加载中">
+        <DeferredSkeletonRow />
+        <DeferredSkeletonRow />
+        <DeferredSkeletonRow />
+      </div>
+    );
+  }
+
+  if (status === 'error') {
+    return <p className="deferred-load-state error">{error || '相似历史事件加载失败，请稍后重试。'}</p>;
+  }
+
+  if (!items.length) {
+    return <p className="deferred-load-state">没有匹配到相似历史事件。</p>;
+  }
+
+  return (
+    <div className="similar-list">
+      {items.map((item, index) => {
+        const similarEvent = normalizeSimilarEventItem(item, index);
+        return (
+          <article className="similar-event-item" key={similarEvent.key}>
+            <div>
+              <b>{similarEvent.title}</b>
+              {similarEvent.similarityLabel && <span>{similarEvent.similarityLabel}</span>}
+            </div>
+            {similarEvent.reason && <p>{similarEvent.reason}</p>}
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+function AdviceContent({ status, error, advice, adviceItems }) {
+  if (status === 'loading') {
+    return (
+      <div className="advice-grid" aria-busy="true" aria-label="处置建议加载中">
+        <DeferredSkeletonRow />
+        <DeferredSkeletonRow />
+        <DeferredSkeletonRow />
+      </div>
+    );
+  }
+
+  if (status === 'error') {
+    return <p className="deferred-load-state error">{error || '处置建议加载失败，稍后可重试。'}</p>;
+  }
+
+  if (adviceItems?.length) {
+    return (
+      <div className="advice-grid">
+        {adviceItems.map((item) => (
+          <article className="advice-item" key={item.label}>
+            <span>{item.label}</span>
+            <p>{item.text}</p>
+          </article>
+        ))}
+      </div>
+    );
+  }
+
+  return <p className="report-paragraph">{advice || '还没有处置建议。'}</p>;
+}
+
+function DeferredSkeletonRow() {
+  return (
+    <div className="deferred-skeleton-row">
+      <span />
+      <span />
+    </div>
+  );
+}
+
 function TrendEventAxis({ trend }) {
   return (
     <div className="trend-event-axis" style={{ gridTemplateColumns: `repeat(${trend.length}, minmax(0, 1fr))` }}>
-      {trend.map((item) => (
-        <div className={`trend-event-slot ${item.node ? 'has-event' : ''}`} key={item.time}>
+      {trend.map((item, index) => (
+        <div className={`trend-event-slot ${item.node ? 'has-event' : ''}`} key={`${item.time}-${index}`}>
           <span>{item.time}</span>
           {item.node && (
             <p>

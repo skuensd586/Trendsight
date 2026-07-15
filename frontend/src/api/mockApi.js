@@ -78,11 +78,24 @@ export const mockApi = {
     return events.find((event) => event.id === String(eventId)) || events[0];
   },
 
+  async getEventSimilarEvents(eventId) {
+    const event = events.find((item) => item.id === String(eventId)) || events[0];
+    return event.similarEvents || [];
+  },
+
+  async getEventAdvice(eventId) {
+    const event = events.find((item) => item.id === String(eventId)) || events[0];
+    return {
+      advice: event.advice,
+      adviceItems: event.adviceItems || [],
+    };
+  },
+
   async askEventQuestion({ eventId, question }) {
     const event = events.find((item) => item.id === String(eventId)) || events[0];
     return {
       conversation_id: `mock-${event.id}`,
-      answer: event.qaSeed || `已收到问题：${question}`,
+      answer: event.qaSeed || `收到问题：${question}。当前演示数据没有更多回答。`,
       created_time: new Date().toISOString(),
     };
   },
